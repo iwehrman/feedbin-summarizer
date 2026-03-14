@@ -32,6 +32,9 @@
     activePrefetchRequestId: "",
     activePrefetchFeedId: "",
     prefetchQueueToken: 0,
+    unreadFeedPrefetchSignature: "",
+    unreadFeedPrefetchRequestId: "",
+    unreadFeedPrefetchToken: 0,
     prefetchedSummaries: new Map(),
     pendingPrefetchedEntryId: "",
     pendingPrefetchedSwapTimer: null
@@ -103,6 +106,7 @@
         restoreSummary(state.activeSummary);
       }
       managePrefetchQueue(null);
+      manageUnreadFeedPrefetch(null);
       return;
     }
 
@@ -172,6 +176,7 @@
     syncButtonState(button, context);
     maybeAutoApplySummary(context, button);
     managePrefetchQueue(context);
+    manageUnreadFeedPrefetch(context);
   }
 
   function buildToolbarButtonWrap() {
@@ -878,6 +883,85 @@
         continue;
       }
 
+      if (getPrefetchedSummary(candidate.entryId)) {
+        continue;
+      }
+
+      candidates.push(candidate);
+    }
+
+    return candidates;
+  }
+
+  function manageUnreadFeedPrefetch(context) {
+    if (!state.preferencesLoaded) {
+      return;
+    }
+
+    const rows = Array.from(document.querySelectorAll(ENTRY_ROW_SELECTOR));
+    if (!rows.length) {
+      cancelUnreadFeedPrefetchQueue();
+      return;
+    }
+
+    const selectedFeedId = getSelectedFeedId();
+    const candidates = getUnreadFeedPrefetchCandidates(rows, context, selectedFeedId);
+    const signature = candidates.map(candidate => `${candidate.feedId}:${candidate.entryId}`).join(",");
+
+    if (!signature) {
+      cancelUnreadFeedPrefetchQueue();
+      return;
+    }
+
+    if (signature === state.unreadFeedPrefetchSignature) {
+      return;
+    }
+
+    cancelUnreadFeedPrefetchQueue();
+    state.unreadFeedPrefetchSignature = signature;
+    const queueToken = state.unreadFeedPrefetchToken;
+    void runUnreadFeedPrefetchQueue(candidates, queueToken);
+  }
+
+  function getUnreadFeedPrefetchCandidates(rows, context, selectedFeedId) {
+    const candidates = [];
+    const seenFeedIds = new Set();
+
+    for (const row of rows) {
+      const candidate = extractPrefetchCandidateFromRow(row);
+      if (!candidate) {
+        continue;
+      }
+
+      if (!state.summaryFeedPreferences[candidate.feedId]) {
+        continue;
+      }
+
+      if (selectedFeedId && candidate.feedId === selectedFeedId) {
+        continue;
+      }
+
+      if (seenFeedIds.has(candidate.feedId)) {
+        continue;
+      }
+
+      if (context && candidate.entryId === context.entryId) {
+        continue;
+      }
+
+      if (state.pendingRequest && candidate.entryId === state.pendingRequest.entryId) {
+        continue;
+      }
+
+      if (state.activeSummary && candidate.entryId === state.activeSummary.entryId) {
+        continue;
+      }
+
+      if (getPrefetchedSummary(candidate.entryId)) {
+        continue;
+      }
+
+      seenFeedIds.add(candidate.feedId);
       candidates.push(candidate);
     }
 
@@ -885,6 +969,15 @@
   }
 
   function extractPrefetchCandidate(row, selectedFeedId) {
+    const candidate = extractPrefetchCandidateFromRow(row);
+    if (!candidate || candidate.feedId !== selectedFeedId) {
+      return null;
+    }
+
+    return candidate;
+  }
+
+  function extractPrefetchCandidateFromRow(row) {
     if (!(row instanceof HTMLElement)) {
       return null;
     }
@@ -894,7 +987,7 @@
     }
 
     const feedId = extractFeedId(row, row) || extractRowFeedId(row);
-    if (!feedId || feedId !== selectedFeedId) {
+    if (!feedId) {
       return null;
     }
 
@@ -931,7 +1024,7 @@
   }
 
   async function runPrefetchQueue(feedId, candidates, queueToken) {
-    const uncachedCandidates = await filterPrefetchCandidates(feedId, candidates, queueToken);
+    const uncachedCandidates = (await filterCandidatesAgainstCache(candidates, () => shouldContinuePrefetch(feedId, queueToken))).slice(0, PREFETCH_LIMIT);
     if (!uncachedCandidates.length) {
       if (shouldContinuePrefetch(feedId, queueToken)) {
         state.pendingFeedSelection = null;
@@ -975,37 +1068,87 @@
     }
   }
 
-  async function filterPrefetchCandidates(feedId, candidates, queueToken) {
-    if (!candidates.length || !shouldContinuePrefetch(feedId, queueToken)) {
+  async function runUnreadFeedPrefetchQueue(candidates, queueToken) {
+    const uncachedCandidates = await filterCandidatesAgainstCache(candidates, () => shouldContinueUnreadFeedPrefetch(queueToken));
+    if (!uncachedCandidates.length) {
+      return;
+    }
+
+    for (const candidate of uncachedCandidates) {
+      if (!shouldContinueUnreadFeedPrefetch(queueToken)) {
+        return;
+      }
+
+      const requestId = `unread-prefetch:${candidate.feedId}:${candidate.entryId}:${Date.now()}`;
+      state.unreadFeedPrefetchRequestId = requestId;
+
+      try {
+        const response = await sendMessage({
+          type: "prefetchArticle",
+          payload: {
+            requestId,
+            entryId: candidate.entryId,
+            title: candidate.title,
+            sourceUrl: candidate.sourceUrl,
+            articleText: candidate.articleText
+          }
+        });
+
+        if (response.result.summaryText) {
+          storePrefetchedSummary(candidate.entryId, response.result.summaryText);
+        }
+      } catch (error) {
+        console.error("Feedbin Summarizer unread prefetch:", error);
+      } finally {
+        if (state.unreadFeedPrefetchRequestId === requestId) {
+          state.unreadFeedPrefetchRequestId = "";
+        }
+      }
+    }
+  }
+
+  async function filterCandidatesAgainstCache(candidates, shouldContinue) {
+    if (!candidates.length || !shouldContinue()) {
       return [];
     }
 
     try {
-      const response = await sendMessage({
-        type: "checkCachedSummaries",
-        payload: {
-          articles: candidates.map(candidate => ({
-            entryId: candidate.entryId,
-            sourceUrl: candidate.sourceUrl,
-            title: candidate.title,
-            articleText: candidate.articleText
-          }))
+      const cachedEntryIds = new Set();
+
+      for (let index = 0; index < candidates.length; index += 20) {
+        if (!shouldContinue()) {
+          return [];
         }
-      });
 
-      if (!shouldContinuePrefetch(feedId, queueToken)) {
-        return [];
+        const response = await sendMessage({
+          type: "checkCachedSummaries",
+          payload: {
+            articles: candidates.slice(index, index + 20).map(candidate => ({
+              entryId: candidate.entryId,
+              sourceUrl: candidate.sourceUrl,
+              title: candidate.title,
+              articleText: candidate.articleText
+            }))
+          }
+        });
+
+        if (!shouldContinue()) {
+          return [];
+        }
+
+        for (const cachedSummary of response.result.cachedSummaries || []) {
+          storePrefetchedSummary(cachedSummary.entryId, cachedSummary.summaryText);
+        }
+
+        for (const entryId of response.result.cachedEntryIds || []) {
+          cachedEntryIds.add(entryId);
+        }
       }
 
-      for (const cachedSummary of response.result.cachedSummaries || []) {
-        storePrefetchedSummary(cachedSummary.entryId, cachedSummary.summaryText);
-      }
-
-      const cachedEntryIds = new Set(response.result.cachedEntryIds || []);
-      return candidates.filter(candidate => !cachedEntryIds.has(candidate.entryId)).slice(0, PREFETCH_LIMIT);
+      return candidates.filter(candidate => !cachedEntryIds.has(candidate.entryId));
     } catch (error) {
       console.error("Feedbin Summarizer cache check:", error);
-      return candidates.slice(0, PREFETCH_LIMIT);
+      return candidates;
     }
   }
 
@@ -1019,6 +1162,10 @@
     }
 
     return getSelectedFeedId() === feedId;
+  }
+
+  function shouldContinueUnreadFeedPrefetch(queueToken) {
+    return state.unreadFeedPrefetchToken === queueToken;
   }
 
   function cancelPrefetchQueue() {
@@ -1038,6 +1185,24 @@
       payload: { requestId }
     }).catch(error => {
       console.error("Feedbin Summarizer prefetch cancel:", error);
+    });
+  }
+
+  function cancelUnreadFeedPrefetchQueue() {
+    state.unreadFeedPrefetchToken += 1;
+    state.unreadFeedPrefetchSignature = "";
+
+    if (!state.unreadFeedPrefetchRequestId) {
+      return;
+    }
+
+    const requestId = state.unreadFeedPrefetchRequestId;
+    state.unreadFeedPrefetchRequestId = "";
+    void sendMessage({
+      type: "cancelPrefetch",
+      payload: { requestId }
+    }).catch(error => {
+      console.error("Feedbin Summarizer unread prefetch cancel:", error);
     });
   }
 
