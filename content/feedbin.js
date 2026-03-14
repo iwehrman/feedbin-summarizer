@@ -185,8 +185,12 @@
     button.title = "Summarize article";
     button.setAttribute("aria-label", "Summarize article");
     button.innerHTML = `
-      <svg viewBox="0 0 18 18" class="feedbin-summarizer-toolbar-icon" aria-hidden="true">
-        <path d="M9 1.75 L11.1 5.9 L15.25 8 L11.1 10.1 L9 14.25 L6.9 10.1 L2.75 8 L6.9 5.9 Z"></path>
+      <svg viewBox="0 0 14 16" class="feedbin-summarizer-toolbar-icon feedbin-summarizer-toolbar-icon-off" aria-hidden="true">
+        <path style="fill: rgb(246, 246, 246) !important;" d="M11 14.5V16H3v-1.5zm1.5-1.5V3A1.5 1.5 0 0 0 11 1.5H3A1.5 1.5 0 0 0 1.5 3v10A1.5 1.5 0 0 0 3 14.5V16l-.154-.004A3 3 0 0 1 0 13V3A3 3 0 0 1 2.846.004L3 0h8l.154.004A3 3 0 0 1 14 3v10a3 3 0 0 1-2.846 2.996L11 16v-1.5a1.5 1.5 0 0 0 1.5-1.5"></path>
+        <path style="fill: rgb(246, 246, 246) !important;" d="M7 4.25v1.5H3.5a.75.75 0 0 1 0-1.5zM10.5 4.25a.75.75 0 0 1 0 1.5h-2v-1.5zM8.75 7.25a.75.75 0 0 1 0 1.5H3.5a.75.75 0 0 1 0-1.5z"></path>
+      </svg>
+      <svg viewBox="0 0 14 16" class="feedbin-summarizer-toolbar-icon feedbin-summarizer-toolbar-icon-on" aria-hidden="true">
+        <path style="fill: rgb(7, 172, 71) !important;" d="M11 0a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H3a3 3 0 0 1-3-3V3a3 3 0 0 1 3-3zM3.5 7.25a.75.75 0 0 0 0 1.5h5.25a.75.75 0 0 0 0-1.5zm0-3a.75.75 0 0 0 0 1.5H7v-1.5zm5 1.5h2a.75.75 0 0 0 0-1.5h-2z"></path>
       </svg>
     `;
     button.addEventListener("click", handleSummarizeClick, true);

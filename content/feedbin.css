@@ -9,7 +9,6 @@
   width: 45px;
   min-width: 45px;
   position: relative;
-  color: #7c8782;
   background: transparent;
   box-shadow: none;
 }
@@ -19,24 +18,40 @@
 }
 
 .feedbin-summarizer-toolbar-icon {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 16px;
   display: block;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  fill: currentColor;
   transform-origin: center;
 }
 
+.feedbin-summarizer-toolbar-icon path {
+  fill: currentColor;
+}
+
+.feedbin-summarizer-toolbar-icon-off {
+  color: rgb(246, 246, 246);
+}
+
+.feedbin-summarizer-toolbar-icon-on {
+  display: none;
+  color: rgb(7, 172, 71);
+}
+
 .feedbin-summarizer-toolbar-button:hover:not(:disabled) {
-  color: #9aa7a1;
+  color: inherit;
 }
 
 .feedbin-summarizer-toolbar-button.is-active {
-  color: #1fcd74;
   background: transparent;
+}
+
+.feedbin-summarizer-toolbar-button.is-active .feedbin-summarizer-toolbar-icon-off {
+  display: none;
+}
+
+.feedbin-summarizer-toolbar-button.is-active .feedbin-summarizer-toolbar-icon-on {
+  display: block;
 }
 
 .feedbin-summarizer-toolbar-button.is-loading {
@@ -50,18 +65,18 @@
 
 @keyframes feedbin-summarizer-pulse {
   0% {
-    transform: scale(1) rotate(0deg);
-    opacity: 0.8;
+    transform: scale(1);
+    opacity: 0.72;
   }
 
   50% {
-    transform: scale(1.14) rotate(14deg);
+    transform: scale(1.06);
     opacity: 1;
   }
 
   100% {
-    transform: scale(1) rotate(0deg);
-    opacity: 0.8;
+    transform: scale(1);
+    opacity: 0.72;
   }
 }
 
