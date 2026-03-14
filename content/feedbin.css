@@ -1,0 +1,81 @@
+.feedbin-summarizer-button-wrap {
+  display: inline-flex;
+}
+
+.feedbin-summarizer-toolbar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 45px;
+  min-width: 45px;
+  position: relative;
+  color: #7c8782;
+  background: transparent;
+  box-shadow: none;
+}
+
+.feedbin-summarizer-toolbar-button:disabled {
+  cursor: default;
+}
+
+.feedbin-summarizer-toolbar-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform-origin: center;
+}
+
+.feedbin-summarizer-toolbar-button:hover:not(:disabled) {
+  color: #9aa7a1;
+}
+
+.feedbin-summarizer-toolbar-button.is-active {
+  color: #1fcd74;
+  background: transparent;
+}
+
+.feedbin-summarizer-toolbar-button.is-loading {
+  opacity: 0.78;
+  cursor: progress;
+}
+
+.feedbin-summarizer-toolbar-button.is-loading .feedbin-summarizer-toolbar-icon {
+  animation: feedbin-summarizer-pulse 900ms ease-in-out infinite;
+}
+
+@keyframes feedbin-summarizer-pulse {
+  0% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.8;
+  }
+
+  50% {
+    transform: scale(1.14) rotate(14deg);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.8;
+  }
+}
+
+.feedbin-summarizer-toolbar-fallback {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin: 0 0 1rem;
+}
+
+.feedbin-summarizer-toolbar-fallback .feedbin-summarizer-toolbar-button {
+  border-radius: 999px;
+}
+
+html.feedbin-summarizer-preparing-swap .entry-content.current .content-styles {
+  visibility: hidden;
+}

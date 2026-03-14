@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Feedbin Summarizer Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main class="page">
+      <header class="header">
+        <h1>Feedbin Summarizer</h1>
+      </header>
+
+      <section class="panel">
+        <form id="settings-form" class="settings-form">
+          <section class="settings-group">
+            <h2>OpenAI</h2>
+
+            <label class="field">
+              <span>API key</span>
+              <input type="password" name="openaiApiKey" id="openaiApiKey" autocomplete="off" placeholder="sk-...">
+            </label>
+
+            <label class="field">
+              <span>Model</span>
+              <input type="text" name="openaiModel" id="openaiModel" autocomplete="off" placeholder="gpt-4.1-mini">
+            </label>
+
+            <div class="grid-two">
+              <label class="field">
+                <span>Reasoning effort</span>
+                <select name="openaiReasoningEffort" id="openaiReasoningEffort">
+                  <option value="">Model default</option>
+                  <option value="minimal">Minimal</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+                <small class="hint">Primarily relevant for GPT-5 reasoning models.</small>
+              </label>
+
+              <label class="field">
+                <span>Verbosity</span>
+                <select name="openaiVerbosity" id="openaiVerbosity">
+                  <option value="">Model default</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+                <small class="hint">Lower verbosity usually shortens responses.</small>
+              </label>
+            </div>
+
+            <label class="field checkbox-field">
+              <span class="checkbox-row">
+                <input type="checkbox" name="summaryCacheEnabled" id="summaryCacheEnabled">
+                <span>Enable summary cache</span>
+              </span>
+              <small class="hint">When enabled, matching summaries can be reused locally for about 36 hours.</small>
+            </label>
+          </section>
+
+          <section class="settings-group">
+            <h2>Prompt</h2>
+
+            <label class="field">
+              <span>System prompt</span>
+              <textarea name="systemPrompt" id="systemPrompt" rows="6"></textarea>
+            </label>
+          </section>
+
+          <div class="actions">
+            <button type="button" id="test-button" class="secondary">Test API</button>
+            <span id="status" class="status" role="status" aria-live="polite"></span>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

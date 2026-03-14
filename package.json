@@ -1,0 +1,19 @@
+{
+  "name": "summarize-extension",
+  "version": "1.0.0",
+  "description": "A Manifest V3 Chrome extension that adds a `Summary` button to Feedbin's article toolbar and replaces the article body with an LLM-generated summary.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "playwright": "^1.58.2"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0"
+  }
+}

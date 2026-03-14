@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Feedbin Summarizer",
+  "version": "0.1.0",
+  "description": "Adds an LLM-powered summary button to Feedbin's article toolbar.",
+  "permissions": [
+    "storage",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://feedbin.com/*",
+    "https://api.openai.com/*",
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://feedbin.com/*"
+      ],
+      "js": [
+        "content/feedbin.js"
+      ],
+      "css": [
+        "content/feedbin.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options/options.html"
+}

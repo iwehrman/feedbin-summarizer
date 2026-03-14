@@ -1,0 +1,192 @@
+:root {
+  color-scheme: light;
+  --page-bg: #f3f4f6;
+  --panel-bg: #ffffff;
+  --panel-border: #e3e6eb;
+  --text: #0d1623;
+  --muted: #707680;
+  --accent: #0867e2;
+  --accent-strong: #0657bf;
+  --danger: #c14141;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--page-bg);
+  color: var(--text);
+  font: 400 16px/1.5 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+
+.header {
+  margin-bottom: 16px;
+}
+
+.header h1 {
+  margin: 0;
+  font: 600 22px/1.2 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.panel {
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 20px;
+  background: var(--panel-bg);
+}
+
+.settings-form {
+  display: grid;
+  gap: 18px;
+}
+
+.settings-group {
+  display: grid;
+  gap: 14px;
+  padding-top: 2px;
+}
+
+.settings-group + .settings-group {
+  padding-top: 18px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.settings-group h2 {
+  margin: 0;
+  font: 600 15px/1.2 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: var(--text);
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.grid-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.field span {
+  font: 600 13px/1.2 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: var(--muted);
+}
+
+.hint {
+  color: var(--muted);
+  font: 400 12px/1.4 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.checkbox-field {
+  gap: 8px;
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-row span {
+  color: var(--text);
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #d7dbe2;
+  border-radius: 4px;
+  background: #ffffff;
+  color: var(--text);
+  padding: 10px 12px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 180px;
+}
+
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+button {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.secondary {
+  background: #ffffff;
+  border-color: #d7dbe2;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.status {
+  min-height: 1.25rem;
+  color: var(--muted);
+}
+
+.status.is-error {
+  color: var(--danger);
+}
+
+.status.is-success {
+  color: var(--accent);
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--accent);
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 20px 12px 32px;
+  }
+
+  .panel {
+    padding: 16px;
+  }
+
+  .grid-two {
+    grid-template-columns: 1fr;
+  }
+}
