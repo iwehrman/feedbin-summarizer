@@ -88,3 +88,7 @@ The options page never reads the saved key back from storage after save. It only
   - `node --check options/options.js`
 - Tests:
   - `npm test`
+- Chrome Web Store package:
+  - `npm run build:package`
+  - Output: `dist/feedbin-summarizer-<version>.zip`
+  - The packager stages only the runtime extension files plus the single bundled `Readability.js` dependency required by the offscreen extractor.
