@@ -7,7 +7,6 @@
   const SOURCE_LINK_SELECTOR = "#source_link";
   const TOOLBAR_BUTTONS_SELECTOR = ".entry-toolbar .entry-buttons";
   const EXTRACT_FORM_SELECTOR = '[data-behavior="toggle_extract"]';
-  const FEED_PREFERENCE_STORAGE_KEY = "summaryFeedPreferences";
   const FEED_CLASS_PATTERN = /\bentry-feed-(\d+)\b/;
   const FEED_LIST_SELECTOR = ".feeds-target.feed-list";
   const FEED_ITEM_SELECTOR = `${FEED_LIST_SELECTOR} [data-feed-id]`;
@@ -18,13 +17,6 @@
   const PREFETCH_SELECTION_WAIT_MS = 4000;
   const PREFETCHED_SUMMARY_LIMIT = 12;
   const PREPARING_SWAP_CLASS = "feedbin-summarizer-preparing-swap";
-  const PREFETCH_INVALIDATION_KEYS = new Set([
-    "openaiModel",
-    "openaiReasoningEffort",
-    "openaiVerbosity",
-    "systemPrompt",
-    "summaryCacheEnabled"
-  ]);
 
   const state = {
     activeSummary: null,
@@ -48,7 +40,7 @@
   boot();
 
   function boot() {
-    loadFeedPreferences();
+    loadFeedbinState();
     scheduleRefresh();
 
     const observer = new MutationObserver(() => {
@@ -68,22 +60,7 @@
       attributeFilter: ["class", "style", "aria-hidden"]
     });
 
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== "local" || !changes[FEED_PREFERENCE_STORAGE_KEY]) {
-        if (areaName === "local" && Object.keys(changes).some(key => PREFETCH_INVALIDATION_KEYS.has(key))) {
-          clearPrefetchedSummaries();
-        }
-        return;
-      }
-
-      state.summaryFeedPreferences = normalizeFeedPreferences(changes[FEED_PREFERENCE_STORAGE_KEY].newValue);
-      state.preferencesLoaded = true;
-      if (Object.keys(changes).some(key => PREFETCH_INVALIDATION_KEYS.has(key))) {
-        clearPrefetchedSummaries();
-      }
-      scheduleRefresh();
-    });
-
+    chrome.runtime.onMessage.addListener(handleRuntimeMessage);
     document.addEventListener("click", handleFeedSelectionIntent, true);
     document.addEventListener("keydown", handleFeedSelectionKeyboardIntent, true);
     document.addEventListener("pointerdown", handleEntrySelectionIntent, true);
@@ -576,6 +553,8 @@
 
   function sendMessage(message) {
     return new Promise((resolve, reject) => {
+      // Content scripts are intentionally limited to article metadata and summary
+      // results. Secret reads and OpenAI requests stay inside the service worker.
       chrome.runtime.sendMessage(message, response => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
@@ -688,14 +667,16 @@
     scheduleRefresh();
   }
 
-  async function loadFeedPreferences() {
+  async function loadFeedbinState() {
     try {
-      const stored = await chrome.storage.local.get(FEED_PREFERENCE_STORAGE_KEY);
-      state.summaryFeedPreferences = normalizeFeedPreferences(stored[FEED_PREFERENCE_STORAGE_KEY]);
+      const response = await sendMessage({
+        type: "getFeedbinState"
+      });
+      state.summaryFeedPreferences = normalizeFeedPreferences(response.result.summaryFeedPreferences);
       state.preferencesLoaded = true;
       scheduleRefresh();
     } catch (error) {
-      console.error("Feedbin Summarizer: failed to load feed preferences.", error);
+      console.warn("Feedbin Summarizer: failed to load feed preferences.", error);
       state.summaryFeedPreferences = {};
       state.preferencesLoaded = true;
     }
@@ -791,12 +772,19 @@
       delete state.summaryFeedPreferences[feedId];
     }
 
-    chrome.storage.local
-      .set({
-        [FEED_PREFERENCE_STORAGE_KEY]: state.summaryFeedPreferences
+    sendMessage({
+      type: "setFeedSummaryPreference",
+      payload: {
+        feedId,
+        enabled
+      }
+    })
+      .then(response => {
+        state.summaryFeedPreferences = normalizeFeedPreferences(response.result.summaryFeedPreferences);
+        scheduleRefresh();
       })
       .catch(error => {
-        console.error("Feedbin Summarizer: failed to save feed preferences.", error);
+        console.warn("Feedbin Summarizer: failed to save feed preferences.", error);
       });
   }
 
@@ -1102,5 +1090,24 @@
 
   function clearPrefetchedSummaries() {
     state.prefetchedSummaries.clear();
+    clearPendingPrefetchedSwap();
+  }
+
+  function handleRuntimeMessage(message) {
+    if (!message || typeof message !== "object") {
+      return;
+    }
+
+    if (message.type === "feedPreferencesUpdated") {
+      state.summaryFeedPreferences = normalizeFeedPreferences(message.payload?.summaryFeedPreferences);
+      state.preferencesLoaded = true;
+      scheduleRefresh();
+      return;
+    }
+
+    if (message.type === "settingsUpdated") {
+      clearPrefetchedSummaries();
+      scheduleRefresh();
+    }
   }
 })();

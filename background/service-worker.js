@@ -1,90 +1,152 @@
-const DEFAULT_SETTINGS = {
-  openaiApiKey: "",
-  openaiModel: "gpt-4.1-mini",
-  openaiReasoningEffort: "minimal",
-  openaiVerbosity: "low",
-  summaryCacheEnabled: true,
-  systemPrompt: [
-    "You summarize articles for a single user inside Feedbin.",
-    "Prioritize what happened, why it matters, and any important nuance, dates, names, or numbers.",
-    "Be compact but not vague.",
-    "Do not mention that you are an AI assistant.",
-    "Return plain text only."
-  ].join(" ")
-};
+import {
+  CONTENT_INVALIDATION_KEYS,
+  DEFAULT_SETTINGS,
+  FEEDBIN_STATE_STORAGE_KEY,
+  SECRETS_STORAGE_KEY,
+  SETTINGS_KEYS,
+  SETTINGS_STORAGE_KEY,
+  SOURCE_FETCH_TIMEOUT_MS,
+  SUMMARY_CACHE_STORAGE_KEY,
+  MAX_SUMMARY_CACHE_ENTRIES,
+  SUMMARY_CACHE_TTL_HOURS
+} from "../shared/defaults.js";
+import {
+  normalizeIncomingMessage
+} from "./message-router.js";
+import {
+  summarizeWithOpenAI
+} from "./openai-client.js";
+import {
+  clearOpenAIKey,
+  getOpenAIKey,
+  getSecretStatus,
+  initializeSecretManager,
+  primeSecretCache,
+  saveOpenAIKey
+} from "./secret-manager.js";
+import {
+  createTimeoutSignal,
+  isAbortError,
+  sanitizeErrorMessage,
+  throwIfAborted
+} from "./security.js";
 
 const OFFSCREEN_DOCUMENT_PATH = "offscreen/offscreen.html";
-const SUMMARY_CACHE_STORAGE_KEY = "summaryCacheEntries";
-const MAX_SUMMARY_CACHE_ENTRIES = 150;
-const SUMMARY_CACHE_TTL_HOURS = 36;
 const PREFETCH_REQUEST_CONTROLLERS = new Map();
+const IN_FLIGHT_SUMMARY_REQUESTS = new Map();
+const FEEDBIN_TAB_URLS = ["https://feedbin.com/*"];
 
-chrome.runtime.onInstalled.addListener(async () => {
-  const existing = await chrome.storage.local.get(Object.keys(DEFAULT_SETTINGS));
-  const next = {};
+const startupPromise = initializeExtensionState();
 
-  for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-    if (typeof existing[key] === "undefined") {
-      next[key] = value;
-    }
-  }
-
-  if (Object.keys(next).length > 0) {
-    await chrome.storage.local.set(next);
-  }
+chrome.runtime.onInstalled.addListener(() => {
+  void initializeExtensionState();
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || typeof message !== "object") {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.target === "offscreen") {
     return;
   }
 
-  if (message.type === "summarizeArticle") {
-    handleSummarizeArticle(message.payload)
-      .then(result => sendResponse({ ok: true, result }))
-      .catch(error => sendResponse({ ok: false, error: error.message || String(error) }));
+  handleIncomingMessage(message, sender)
+    .then(result => sendResponse({ ok: true, result }))
+    .catch(error => sendResponse({ ok: false, error: sanitizeErrorMessage(error) }));
 
-    return true;
-  }
-
-  if (message.type === "testProvider") {
-    handleTestProvider(message.payload)
-      .then(result => sendResponse({ ok: true, result }))
-      .catch(error => sendResponse({ ok: false, error: error.message || String(error) }));
-
-    return true;
-  }
-
-  if (message.type === "prefetchArticle") {
-    handlePrefetchArticle(message.payload)
-      .then(result => sendResponse({ ok: true, result }))
-      .catch(error => sendResponse({ ok: false, error: error.message || String(error) }));
-
-    return true;
-  }
-
-  if (message.type === "checkCachedSummaries") {
-    handleCheckCachedSummaries(message.payload)
-      .then(result => sendResponse({ ok: true, result }))
-      .catch(error => sendResponse({ ok: false, error: error.message || String(error) }));
-
-    return true;
-  }
-
-  if (message.type === "cancelPrefetch") {
-    cancelPrefetchRequest(message.payload);
-    sendResponse({ ok: true, result: { cancelled: true } });
-  }
+  return true;
 });
 
-async function handleSummarizeArticle(payload) {
-  const settings = await getSettings();
-  return runSummaryPipeline(payload, settings);
+async function handleIncomingMessage(message, sender) {
+  await startupPromise;
+  const request = normalizeIncomingMessage(message, sender);
+  if (!request) {
+    return { ignored: true };
+  }
+
+  switch (request.type) {
+    case "getOptionsState":
+      return buildOptionsState();
+    case "updateOptionsSettings":
+      return handleUpdateOptionsSettings(request.payload);
+    case "saveOpenAIKey":
+      return handleSaveOpenAIKey(request.payload);
+    case "clearOpenAIKey":
+      return handleClearOpenAIKey();
+    case "testOpenAIConnection":
+      return handleTestOpenAIConnection();
+    case "getFeedbinState":
+      return getFeedbinState();
+    case "setFeedSummaryPreference":
+      return handleSetFeedSummaryPreference(request.payload);
+    case "summarizeArticle":
+      return handleSummarizeArticle(request.payload, sender);
+    case "prefetchArticle":
+      return handlePrefetchArticle(request.payload);
+    case "checkCachedSummaries":
+      return handleCheckCachedSummaries(request.payload);
+    case "cancelPrefetch":
+      cancelPrefetchRequest(request.payload.requestId);
+      return { cancelled: true };
+    default:
+      throw new Error("Unsupported message type.");
+  }
 }
 
-async function handleTestProvider(payload) {
-  const settings = mergeSettings(payload || {});
-  const openAIConfig = getOpenAIConfig(settings);
+async function initializeExtensionState() {
+  // Lock extension storage down before any content script has a chance to touch it.
+  await initializeSecretManager();
+  await migrateLegacyStorage();
+  await ensureStoredSettings();
+  await primeSecretCache();
+}
+
+async function buildOptionsState() {
+  const settings = await getUserSettings();
+  const secretStatus = await getSecretStatus();
+
+  return {
+    settings,
+    keyStatus: secretStatus
+  };
+}
+
+async function handleUpdateOptionsSettings(payload) {
+  const currentSettings = await getUserSettings();
+  const nextSettings = normalizeSettings({
+    ...currentSettings,
+    ...payload
+  });
+
+  await chrome.storage.local.set({
+    [SETTINGS_STORAGE_KEY]: nextSettings
+  });
+
+  if (didContentInvalidationChange(currentSettings, nextSettings)) {
+    await broadcastToFeedbinTabs({
+      type: "settingsUpdated"
+    });
+  }
+
+  return {
+    settings: nextSettings
+  };
+}
+
+async function handleSaveOpenAIKey(payload) {
+  await saveOpenAIKey(payload.openaiApiKey);
+  return {
+    keyStatus: await getSecretStatus()
+  };
+}
+
+async function handleClearOpenAIKey() {
+  await clearOpenAIKey();
+  return {
+    keyStatus: await getSecretStatus()
+  };
+}
+
+async function handleTestOpenAIConnection() {
+  const settings = await getUserSettings();
+  const openAIConfig = await getOpenAIConfig(settings);
   const summaryText = await summarizeWithOpenAI(openAIConfig, {
     systemPrompt: settings.systemPrompt,
     prompt: [
@@ -103,8 +165,58 @@ async function handleTestProvider(payload) {
   };
 }
 
+async function handleSetFeedSummaryPreference(payload) {
+  const feedbinState = await getFeedbinState();
+  const nextPreferences = { ...feedbinState.summaryFeedPreferences };
+
+  if (payload.enabled) {
+    nextPreferences[payload.feedId] = true;
+  } else {
+    delete nextPreferences[payload.feedId];
+  }
+
+  await chrome.storage.local.set({
+    [FEEDBIN_STATE_STORAGE_KEY]: {
+      summaryFeedPreferences: nextPreferences
+    }
+  });
+
+  await broadcastToFeedbinTabs({
+    type: "feedPreferencesUpdated",
+    payload: {
+      summaryFeedPreferences: nextPreferences
+    }
+  });
+
+  return {
+    summaryFeedPreferences: nextPreferences
+  };
+}
+
+async function handleSummarizeArticle(payload, sender) {
+  const tabId = sender?.tab?.id;
+  if (typeof tabId !== "number" || !payload.entryId) {
+    return runSummaryPipeline(payload, await getUserSettings());
+  }
+
+  const requestKey = `${tabId}:${payload.entryId}`;
+  if (IN_FLIGHT_SUMMARY_REQUESTS.has(requestKey)) {
+    return IN_FLIGHT_SUMMARY_REQUESTS.get(requestKey);
+  }
+
+  const requestPromise = (async () => {
+    const settings = await getUserSettings();
+    return runSummaryPipeline(payload, settings);
+  })().finally(() => {
+    IN_FLIGHT_SUMMARY_REQUESTS.delete(requestKey);
+  });
+
+  IN_FLIGHT_SUMMARY_REQUESTS.set(requestKey, requestPromise);
+  return requestPromise;
+}
+
 async function handlePrefetchArticle(payload) {
-  const settings = await getSettings();
+  const settings = await getUserSettings();
   if (settings.summaryCacheEnabled === false) {
     return {
       skipped: true,
@@ -112,11 +224,9 @@ async function handlePrefetchArticle(payload) {
     };
   }
 
-  const requestId = String(payload?.requestId || "");
+  const requestId = payload.requestId;
   const controller = new AbortController();
-  if (requestId) {
-    PREFETCH_REQUEST_CONTROLLERS.set(requestId, controller);
-  }
+  PREFETCH_REQUEST_CONTROLLERS.set(requestId, controller);
 
   try {
     const result = await runSummaryPipeline(payload, settings, {
@@ -138,23 +248,13 @@ async function handlePrefetchArticle(payload) {
 
     throw error;
   } finally {
-    if (requestId) {
-      PREFETCH_REQUEST_CONTROLLERS.delete(requestId);
-    }
+    PREFETCH_REQUEST_CONTROLLERS.delete(requestId);
   }
 }
 
 async function handleCheckCachedSummaries(payload) {
-  const settings = await getSettings();
+  const settings = await getUserSettings();
   if (settings.summaryCacheEnabled === false) {
-    return {
-      cachedEntryIds: [],
-      cachedSummaries: []
-    };
-  }
-
-  const articles = Array.isArray(payload?.articles) ? payload.articles : [];
-  if (!articles.length) {
     return {
       cachedEntryIds: [],
       cachedSummaries: []
@@ -167,7 +267,7 @@ async function handleCheckCachedSummaries(payload) {
   let didTouchCache = false;
   const now = Date.now();
 
-  for (const article of articles) {
+  for (const article of payload.articles) {
     const cacheKey = await buildSummaryCacheKeyForPayload(article, settings);
     const entry = cache[cacheKey];
     if (!entry) {
@@ -177,16 +277,13 @@ async function handleCheckCachedSummaries(payload) {
     entry.lastAccessedAt = now;
     cache[cacheKey] = entry;
     didTouchCache = true;
+    cachedEntryIds.push(article.entryId);
 
-    const entryId = String(article?.entryId || "").trim();
-    if (entryId) {
-      cachedEntryIds.push(entryId);
-      if (typeof entry.summaryText === "string" && entry.summaryText.trim()) {
-        cachedSummaries.push({
-          entryId,
-          summaryText: entry.summaryText
-        });
-      }
+    if (typeof entry.summaryText === "string" && entry.summaryText.trim()) {
+      cachedSummaries.push({
+        entryId: article.entryId,
+        summaryText: entry.summaryText
+      });
     }
   }
 
@@ -201,44 +298,126 @@ async function handleCheckCachedSummaries(payload) {
   };
 }
 
-function cancelPrefetchRequest(payload) {
-  const requestId = String(payload?.requestId || "");
-  if (!requestId) {
-    return;
-  }
-
-  const controller = PREFETCH_REQUEST_CONTROLLERS.get(requestId);
+function cancelPrefetchRequest(requestId) {
+  const controller = PREFETCH_REQUEST_CONTROLLERS.get(String(requestId || ""));
   if (!controller) {
     return;
   }
 
   controller.abort();
-  PREFETCH_REQUEST_CONTROLLERS.delete(requestId);
+  PREFETCH_REQUEST_CONTROLLERS.delete(String(requestId || ""));
 }
 
-async function getSettings() {
-  const stored = await chrome.storage.local.get(Object.keys(DEFAULT_SETTINGS));
-  return mergeSettings(migrateLegacySettings(stored));
+async function getUserSettings() {
+  const stored = await chrome.storage.local.get(SETTINGS_STORAGE_KEY);
+  return normalizeSettings(stored[SETTINGS_STORAGE_KEY]);
 }
 
-function mergeSettings(overrides) {
+async function getFeedbinState() {
+  const stored = await chrome.storage.local.get(FEEDBIN_STATE_STORAGE_KEY);
+  return normalizeFeedbinState(stored[FEEDBIN_STATE_STORAGE_KEY]);
+}
+
+function normalizeSettings(rawSettings) {
   return {
-    ...DEFAULT_SETTINGS,
-    ...overrides
+    openaiModel: normalizeString(rawSettings?.openaiModel, DEFAULT_SETTINGS.openaiModel, 120),
+    openaiReasoningEffort: normalizeChoice(rawSettings?.openaiReasoningEffort, ["", "minimal", "low", "medium", "high"], DEFAULT_SETTINGS.openaiReasoningEffort),
+    openaiVerbosity: normalizeChoice(rawSettings?.openaiVerbosity, ["", "low", "medium", "high"], DEFAULT_SETTINGS.openaiVerbosity),
+    summaryCacheEnabled: typeof rawSettings?.summaryCacheEnabled === "boolean" ? rawSettings.summaryCacheEnabled : DEFAULT_SETTINGS.summaryCacheEnabled,
+    systemPrompt: normalizeString(rawSettings?.systemPrompt, DEFAULT_SETTINGS.systemPrompt, 4000)
   };
 }
 
-function getOpenAIConfig(settings) {
-  if (!settings.openaiApiKey) {
-    throw new Error("Missing OpenAI API key. Add it in the extension options.");
+function normalizeFeedbinState(rawState) {
+  const next = {};
+
+  for (const [feedId, enabled] of Object.entries(rawState?.summaryFeedPreferences || {})) {
+    if (enabled === true) {
+      next[String(feedId)] = true;
+    }
   }
 
   return {
-    apiKey: settings.openaiApiKey,
-    model: settings.openaiModel || DEFAULT_SETTINGS.openaiModel,
-    reasoningEffort: normalizeChoice(settings.openaiReasoningEffort, ["minimal", "low", "medium", "high"], ""),
-    verbosity: normalizeChoice(settings.openaiVerbosity, ["low", "medium", "high"], "")
+    summaryFeedPreferences: next
   };
+}
+
+async function ensureStoredSettings() {
+  const stored = await chrome.storage.local.get(SETTINGS_STORAGE_KEY);
+  if (!stored[SETTINGS_STORAGE_KEY]) {
+    await chrome.storage.local.set({
+      [SETTINGS_STORAGE_KEY]: DEFAULT_SETTINGS
+    });
+    return;
+  }
+
+  const normalized = normalizeSettings(stored[SETTINGS_STORAGE_KEY]);
+  if (!shallowEqual(stored[SETTINGS_STORAGE_KEY], normalized)) {
+    await chrome.storage.local.set({
+      [SETTINGS_STORAGE_KEY]: normalized
+    });
+  }
+}
+
+async function migrateLegacyStorage() {
+  const legacyKeys = ["openaiApiKey", ...SETTINGS_KEYS, "summaryFeedPreferences"];
+  const stored = await chrome.storage.local.get([
+    SETTINGS_STORAGE_KEY,
+    FEEDBIN_STATE_STORAGE_KEY,
+    SECRETS_STORAGE_KEY,
+    ...legacyKeys
+  ]);
+
+  const nextSettings = stored[SETTINGS_STORAGE_KEY] || buildLegacySettings(stored);
+  const nextFeedbinState = stored[FEEDBIN_STATE_STORAGE_KEY] || {
+    summaryFeedPreferences: stored.summaryFeedPreferences || {}
+  };
+  const nextSecrets = stored[SECRETS_STORAGE_KEY] || {
+    openaiApiKey: normalizeString(stored.openaiApiKey, "", 400)
+  };
+
+  await chrome.storage.local.set({
+    [SETTINGS_STORAGE_KEY]: normalizeSettings(nextSettings),
+    [FEEDBIN_STATE_STORAGE_KEY]: normalizeFeedbinState(nextFeedbinState),
+    [SECRETS_STORAGE_KEY]: {
+      openaiApiKey: String(nextSecrets.openaiApiKey || "").trim()
+    }
+  });
+
+  const removableKeys = legacyKeys.filter(key => typeof stored[key] !== "undefined");
+  if (removableKeys.length) {
+    await chrome.storage.local.remove(removableKeys);
+  }
+}
+
+function buildLegacySettings(stored) {
+  const legacySettings = {};
+  for (const key of SETTINGS_KEYS) {
+    if (typeof stored[key] !== "undefined") {
+      legacySettings[key] = stored[key];
+    }
+  }
+
+  return legacySettings;
+}
+
+function didContentInvalidationChange(previousSettings, nextSettings) {
+  for (const key of CONTENT_INVALIDATION_KEYS) {
+    if (previousSettings[key] !== nextSettings[key]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function broadcastToFeedbinTabs(message) {
+  const tabs = await chrome.tabs.query({ url: FEEDBIN_TAB_URLS });
+  await Promise.allSettled(
+    tabs
+      .filter(tab => typeof tab.id === "number")
+      .map(tab => chrome.tabs.sendMessage(tab.id, message))
+  );
 }
 
 async function runSummaryPipeline(payload, settings, options = {}) {
@@ -251,7 +430,7 @@ async function runSummaryPipeline(payload, settings, options = {}) {
     if (cachedSummary) {
       return {
         provider: "openai",
-        model: settings.openaiModel || DEFAULT_SETTINGS.openaiModel,
+        model: settings.openaiModel,
         summaryText: cachedSummary.summaryText,
         contentSourceLabel: cachedSummary.contentSourceLabel || "Cached summary",
         sourceWarning: cachedSummary.sourceWarning || "",
@@ -260,26 +439,24 @@ async function runSummaryPipeline(payload, settings, options = {}) {
     }
   }
 
-  const openAIConfig = getOpenAIConfig(settings);
+  const openAIConfig = await getOpenAIConfig(settings);
   throwIfAborted(signal);
+
   const sourceMaterial = await getSourceMaterial(payload, signal);
   const articleText = normalizeArticleText(sourceMaterial.articleText || "");
-
   if (!articleText) {
     throw new Error("No article text was available to summarize.");
   }
-
-  const prompt = buildSummaryPrompt({
-    title: payload?.title || "",
-    sourceUrl: payload?.sourceUrl || "",
-    articleText
-  });
 
   const summaryText = await summarizeWithOpenAI(
     openAIConfig,
     {
       systemPrompt: settings.systemPrompt,
-      prompt
+      prompt: buildSummaryPrompt({
+        title: payload.title,
+        sourceUrl: payload.sourceUrl,
+        articleText
+      })
     },
     signal
   );
@@ -302,59 +479,25 @@ async function runSummaryPipeline(payload, settings, options = {}) {
   };
 }
 
-function buildArticleCacheIdentity(payload) {
-  const sourceUrl = normalizeSourceUrl(payload?.sourceUrl || "");
-  if (sourceUrl) {
-    return `url:${sourceUrl}`;
+async function getOpenAIConfig(settings) {
+  const apiKey = await getOpenAIKey();
+  if (!apiKey) {
+    throw new Error("No OpenAI API key is configured. Add it in the extension options.");
   }
 
-  const entryId = String(payload?.entryId || "").trim();
-  if (entryId) {
-    return `entry:${entryId}`;
-  }
-
-  return [
-    "inline",
-    String(payload?.title || "").trim(),
-    normalizeVisibleArticleText(payload?.articleText || "")
-  ].join(":");
-}
-
-async function buildSummaryCacheKeyForPayload(payload, settings) {
-  return buildSummaryCacheKey({
-    articleIdentity: buildArticleCacheIdentity(payload),
+  return {
+    apiKey,
     model: settings.openaiModel || DEFAULT_SETTINGS.openaiModel,
-    reasoningEffort: normalizeChoice(settings.openaiReasoningEffort, ["minimal", "low", "medium", "high"], ""),
-    verbosity: normalizeChoice(settings.openaiVerbosity, ["low", "medium", "high"], ""),
-    systemPrompt: settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt
-  });
-}
-
-function normalizeArticleText(value) {
-  return String(value || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/\s+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
-    .slice(0, 24000);
-}
-
-function buildSummaryPrompt({ title, sourceUrl, articleText }) {
-  return [
-    `Title: ${title || "Untitled"}`,
-    `Source URL: ${sourceUrl || "Unknown"}`,
-    "",
-    "Article text:",
-    articleText
-  ].join("\n");
+    reasoningEffort: normalizeChoice(settings.openaiReasoningEffort, ["", "minimal", "low", "medium", "high"], ""),
+    verbosity: normalizeChoice(settings.openaiVerbosity, ["", "low", "medium", "high"], "")
+  };
 }
 
 async function getSourceMaterial(payload, signal) {
-  const sourceUrl = normalizeSourceUrl(payload?.sourceUrl || "");
-  const visibleArticleText = normalizeVisibleArticleText(payload?.articleText || "");
-  const preferVisibleArticleText = Boolean(payload?.preferVisibleArticleText);
+  const sourceUrl = normalizeSourceUrl(payload.sourceUrl || "");
+  const visibleArticleText = normalizeVisibleArticleText(payload.articleText || "");
 
-  if (preferVisibleArticleText && visibleArticleText) {
+  if (payload.preferVisibleArticleText && visibleArticleText) {
     return {
       articleText: visibleArticleText,
       contentSourceLabel: "Feedbin full content",
@@ -378,7 +521,7 @@ async function getSourceMaterial(payload, signal) {
       return {
         articleText: visibleArticleText,
         contentSourceLabel: "Feedbin view",
-        sourceWarning: error.message || String(error)
+        sourceWarning: sanitizeErrorMessage(error)
       };
     }
   }
@@ -398,7 +541,7 @@ async function fetchReadableSourceArticle(sourceUrl, signal) {
   }
 
   const response = await fetch(url.href, {
-    signal,
+    signal: createTimeoutSignal(signal, SOURCE_FETCH_TIMEOUT_MS),
     redirect: "follow",
     headers: {
       Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
@@ -416,6 +559,7 @@ async function fetchReadableSourceArticle(sourceUrl, signal) {
 
   const html = await response.text();
   throwIfAborted(signal);
+
   const extracted = await extractReadableArticle({
     url: response.url || url.href,
     html
@@ -487,13 +631,8 @@ async function extractReadableArticle(payload) {
           return;
         }
 
-        if (!response) {
-          reject(new Error("The article extractor did not respond."));
-          return;
-        }
-
-        if (!response.ok) {
-          reject(new Error(response.error || "The article extractor failed."));
+        if (!response?.ok) {
+          reject(new Error(response?.error || "The article extractor failed."));
           return;
         }
 
@@ -503,151 +642,48 @@ async function extractReadableArticle(payload) {
   });
 }
 
-function normalizeSourceUrl(value) {
-  const trimmed = String(value || "").trim();
-  if (!trimmed) {
-    return "";
-  }
-
-  try {
-    const url = new URL(trimmed);
-    return /^https?:$/.test(url.protocol) ? url.href : "";
-  } catch (_error) {
-    return "";
-  }
+function buildSummaryPrompt({ title, sourceUrl, articleText }) {
+  return [
+    `Title: ${title || "Untitled"}`,
+    `Source URL: ${sourceUrl || "Unknown"}`,
+    "",
+    "Article text:",
+    articleText
+  ].join("\n");
 }
 
-function normalizeVisibleArticleText(value) {
-  const text = normalizeArticleText(value);
-  const normalized = text.toLowerCase();
-
-  if (!text) {
-    return "";
+function buildArticleCacheIdentity(payload) {
+  const sourceUrl = normalizeSourceUrl(payload.sourceUrl || "");
+  if (sourceUrl) {
+    return `url:${sourceUrl}`;
   }
 
-  if (
-    normalized === "loading" ||
-    normalized === "loading..." ||
-    normalized === "loading full content" ||
-    normalized === "loading full content..." ||
-    /^loading\b/.test(normalized)
-  ) {
-    return "";
+  if (payload.entryId) {
+    return `entry:${payload.entryId}`;
   }
 
-  return text;
+  return [
+    "inline",
+    payload.title || "",
+    normalizeVisibleArticleText(payload.articleText || "")
+  ].join(":");
 }
 
-async function summarizeWithOpenAI(openAIConfig, input, signal) {
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    signal,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${openAIConfig.apiKey}`
-    },
-    body: JSON.stringify({
-      store: false,
-      model: openAIConfig.model,
-      instructions: input.systemPrompt,
-      input: input.prompt,
-      reasoning: openAIConfig.reasoningEffort ? { effort: openAIConfig.reasoningEffort } : undefined,
-      text: openAIConfig.verbosity ? { verbosity: openAIConfig.verbosity } : undefined
-    })
+async function buildSummaryCacheKeyForPayload(payload, settings) {
+  return buildSummaryCacheKey({
+    articleIdentity: buildArticleCacheIdentity(payload),
+    model: settings.openaiModel || DEFAULT_SETTINGS.openaiModel,
+    reasoningEffort: normalizeChoice(settings.openaiReasoningEffort, ["", "minimal", "low", "medium", "high"], ""),
+    verbosity: normalizeChoice(settings.openaiVerbosity, ["", "low", "medium", "high"], ""),
+    systemPrompt: settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt
   });
-
-  const payload = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(getApiErrorMessage(payload, "OpenAI request failed"));
-  }
-
-  const text = extractResponseText(payload);
-
-  if (typeof text !== "string" || !text.trim()) {
-    throw new Error(buildMissingOutputError(payload, openAIConfig));
-  }
-
-  return text.trim();
-}
-
-function extractResponseText(payload) {
-  if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
-    return payload.output_text;
-  }
-
-  const textChunks = [];
-
-  for (const outputItem of payload?.output || []) {
-    for (const contentItem of outputItem?.content || []) {
-      if (contentItem?.type === "output_text" && typeof contentItem.text === "string") {
-        textChunks.push(contentItem.text);
-      }
-    }
-  }
-
-  return textChunks.join("\n").trim();
-}
-
-function normalizeChoice(value, allowedValues, fallback) {
-  const normalized = String(value || "").trim().toLowerCase();
-  return allowedValues.includes(normalized) ? normalized : fallback;
-}
-
-function migrateLegacySettings(settings) {
-  const next = { ...settings };
-  if (typeof next.summaryCacheEnabled === "undefined") {
-    next.summaryCacheEnabled = true;
-  }
-
-  return next;
-}
-
-function buildMissingOutputError(payload, openAIConfig) {
-  const incompleteReason = payload?.incomplete_details?.reason || "";
-  const reasoningTokens = payload?.usage?.output_tokens_details?.reasoning_tokens;
-  const hasReasoningOnlyOutput =
-    Array.isArray(payload?.output) &&
-    payload.output.length > 0 &&
-    payload.output.every(item => item?.type === "reasoning");
-
-  if (incompleteReason === "max_output_tokens" && hasReasoningOnlyOutput) {
-    const details = [
-      `OpenAI used the entire output budget before emitting summary text.`,
-      `Model: ${openAIConfig.model}.`
-    ];
-
-    if (typeof reasoningTokens === "number") {
-      details.push(`Reasoning tokens used: ${reasoningTokens}.`);
-    }
-
-    details.push("Try setting Reasoning effort to Minimal or using a non-reasoning model like gpt-4.1-nano.");
-
-    return details.join(" ");
-  }
-
-  return "OpenAI returned no summary text.";
-}
-
-function throwIfAborted(signal) {
-  if (!signal?.aborted) {
-    return;
-  }
-
-  const error = new Error("Request aborted.");
-  error.name = "AbortError";
-  throw error;
-}
-
-function isAbortError(error) {
-  return Boolean(error) && (error.name === "AbortError" || /aborted/i.test(String(error.message || error)));
 }
 
 async function buildSummaryCacheKey(parts) {
   const payload = JSON.stringify(parts);
   const bytes = new TextEncoder().encode(payload);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return `v2:${bytesToHex(digest)}`;
+  return `v3:${bytesToHex(digest)}`;
 }
 
 function bytesToHex(buffer) {
@@ -657,7 +693,6 @@ function bytesToHex(buffer) {
 async function getCachedSummary(cacheKey) {
   const cache = await readSummaryCache();
   const entry = cache[cacheKey];
-
   if (!entry) {
     return null;
   }
@@ -671,7 +706,6 @@ async function getCachedSummary(cacheKey) {
   entry.lastAccessedAt = Date.now();
   cache[cacheKey] = entry;
   await writeSummaryCache(cache);
-
   return entry;
 }
 
@@ -708,7 +742,6 @@ async function writeSummaryCache(cache) {
 
 function pruneSummaryCache(cache) {
   const now = Date.now();
-
   for (const [cacheKey, entry] of Object.entries(cache)) {
     if (!entry || typeof entry.summaryText !== "string" || entry.expiresAt <= now) {
       delete cache[cacheKey];
@@ -732,12 +765,65 @@ function pruneSummaryCache(cache) {
     });
 }
 
-function getApiErrorMessage(payload, fallback) {
-  const message =
-    payload?.error?.message ||
-    payload?.error?.type ||
-    payload?.message ||
-    fallback;
+function normalizeArticleText(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, 24000);
+}
 
-  return typeof message === "string" ? message : fallback;
+function normalizeVisibleArticleText(value) {
+  const text = normalizeArticleText(value);
+  const normalized = text.toLowerCase();
+  if (!text) {
+    return "";
+  }
+
+  if (
+    normalized === "loading" ||
+    normalized === "loading..." ||
+    normalized === "loading full content" ||
+    normalized === "loading full content..." ||
+    /^loading\b/.test(normalized)
+  ) {
+    return "";
+  }
+
+  return text;
+}
+
+function normalizeSourceUrl(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  try {
+    const url = new URL(trimmed);
+    return /^https?:$/.test(url.protocol) ? url.href : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function normalizeChoice(value, allowedValues, fallback) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return allowedValues.includes(normalized) ? normalized : fallback;
+}
+
+function normalizeString(value, fallback, maxLength) {
+  const normalized = String(value || "").trim();
+  return normalized ? normalized.slice(0, maxLength) : fallback;
+}
+
+function shallowEqual(left, right) {
+  const leftKeys = Object.keys(left || {});
+  const rightKeys = Object.keys(right || {});
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  return leftKeys.every(key => left[key] === right[key]);
 }

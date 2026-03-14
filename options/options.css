@@ -137,6 +137,10 @@ input[type="checkbox"] {
   flex-wrap: wrap;
 }
 
+.key-actions {
+  margin-top: -2px;
+}
+
 button {
   appearance: none;
   border: 1px solid transparent;
@@ -157,6 +161,11 @@ button {
   border-color: #d7dbe2;
   color: var(--text);
   font-weight: 600;
+}
+
+.danger {
+  border-color: #e3c2c2;
+  color: var(--danger);
 }
 
 .status {

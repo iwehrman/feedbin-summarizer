@@ -20,7 +20,15 @@
             <label class="field">
               <span>API key</span>
               <input type="password" name="openaiApiKey" id="openaiApiKey" autocomplete="off" placeholder="sk-...">
+              <small class="hint">Stored locally inside the extension. The saved key is never shown back in full, and this remains less secure than using a backend.</small>
             </label>
+
+            <div class="actions key-actions">
+              <button type="button" id="save-key-button" class="secondary">Save key</button>
+              <button type="button" id="clear-key-button" class="secondary danger">Clear key</button>
+              <button type="button" id="test-button" class="secondary">Test API</button>
+            </div>
+            <span id="key-status" class="status" role="status" aria-live="polite"></span>
 
             <label class="field">
               <span>Model</span>
@@ -70,10 +78,7 @@
             </label>
           </section>
 
-          <div class="actions">
-            <button type="button" id="test-button" class="secondary">Test API</button>
-            <span id="status" class="status" role="status" aria-live="polite"></span>
-          </div>
+          <span id="status" class="status" role="status" aria-live="polite"></span>
         </form>
       </section>
     </main>

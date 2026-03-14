@@ -1,21 +1,12 @@
-const DEFAULT_SETTINGS = {
-  openaiApiKey: "",
-  openaiModel: "gpt-4.1-mini",
-  openaiReasoningEffort: "minimal",
-  openaiVerbosity: "low",
-  summaryCacheEnabled: true,
-  systemPrompt: [
-    "You summarize articles for a single user inside Feedbin.",
-    "Prioritize what happened, why it matters, and any important nuance, dates, names, or numbers.",
-    "Be compact but not vague.",
-    "Do not mention that you are an AI assistant.",
-    "Return plain text only."
-  ].join(" ")
-};
+import { DEFAULT_SETTINGS } from "../shared/defaults.js";
 
 const form = document.getElementById("settings-form");
 const status = document.getElementById("status");
+const keyStatus = document.getElementById("key-status");
 const testButton = document.getElementById("test-button");
+const saveKeyButton = document.getElementById("save-key-button");
+const clearKeyButton = document.getElementById("clear-key-button");
+const keyField = document.getElementById("openaiApiKey");
 let saveTimer = null;
 
 init().catch(error => {
@@ -23,28 +14,72 @@ init().catch(error => {
 });
 
 async function init() {
-  const stored = await chrome.storage.local.get(Object.keys(DEFAULT_SETTINGS));
-  const settings = {
-    ...DEFAULT_SETTINGS,
-    ...migrateLegacySettings(stored)
-  };
-
-  fillForm(settings);
+  const optionsState = await loadOptionsState();
+  fillForm(optionsState.settings);
+  renderKeyStatus(optionsState.keyStatus);
   form.addEventListener("input", scheduleAutoSave);
   form.addEventListener("change", scheduleAutoSave);
-  testButton.addEventListener("click", handleSaveAndTest);
+  testButton.addEventListener("click", handleTestConnection);
+  saveKeyButton.addEventListener("click", handleSaveKey);
+  clearKeyButton.addEventListener("click", handleClearKey);
 }
 
-async function handleSaveAndTest(event) {
+async function handleSaveKey(event) {
+  event.preventDefault();
+  try {
+    await saveKeyFromField();
+  } catch (error) {
+    setKeyStatus(error.message || String(error), "error");
+  }
+}
+
+async function saveKeyFromField() {
+  const nextKey = String(keyField.value || "").trim();
+  if (!nextKey) {
+    throw new Error("Enter the full key to save it.");
+  }
+
+  const response = await sendMessage({
+    type: "saveOpenAIKey",
+    payload: {
+      openaiApiKey: nextKey
+    }
+  });
+
+  keyField.value = "";
+  renderKeyStatus(response.result.keyStatus);
+  setStatus("Key saved.", "success");
+}
+
+async function handleClearKey(event) {
+  event.preventDefault();
+
+  try {
+    const response = await sendMessage({
+      type: "clearOpenAIKey"
+    });
+
+    keyField.value = "";
+    renderKeyStatus(response.result.keyStatus);
+    setStatus("Key cleared.", "success");
+  } catch (error) {
+    setKeyStatus(error.message || String(error), "error");
+  }
+}
+
+async function handleTestConnection(event) {
   event.preventDefault();
   try {
     flushPendingSave();
-    const settings = await saveForm();
+    await saveNonSecretSettings();
+    if (String(keyField.value || "").trim()) {
+      await saveKeyFromField();
+    }
+
     setStatus("Testing API...");
 
     const response = await sendMessage({
-      type: "testProvider",
-      payload: settings
+      type: "testOpenAIConnection"
     });
 
     setStatus(`API is working. Sample response: ${truncate(response.result.summaryText, 120)}`, "success");
@@ -53,7 +88,11 @@ async function handleSaveAndTest(event) {
   }
 }
 
-function scheduleAutoSave() {
+function scheduleAutoSave(event) {
+  if (eventTargetsSecretField(event)) {
+    return;
+  }
+
   window.clearTimeout(saveTimer);
   setStatus("Saving...");
   saveTimer = window.setTimeout(() => {
@@ -65,7 +104,7 @@ function scheduleAutoSave() {
 
 async function handleAutoSave() {
   saveTimer = null;
-  await saveForm();
+  await saveNonSecretSettings();
   setStatus("Saved.", "success");
 }
 
@@ -76,16 +115,19 @@ function flushPendingSave() {
   }
 }
 
-async function saveForm() {
-  const settings = readForm();
-  await chrome.storage.local.set(settings);
-  return settings;
+async function saveNonSecretSettings() {
+  const settings = readNonSecretSettings();
+  const response = await sendMessage({
+    type: "updateOptionsSettings",
+    payload: settings
+  });
+
+  return response.result.settings;
 }
 
-function readForm() {
+function readNonSecretSettings() {
   const data = new FormData(form);
   return {
-    openaiApiKey: String(data.get("openaiApiKey") || "").trim(),
     openaiModel: String(data.get("openaiModel") || DEFAULT_SETTINGS.openaiModel).trim(),
     openaiReasoningEffort: String(data.get("openaiReasoningEffort") || "").trim(),
     openaiVerbosity: String(data.get("openaiVerbosity") || "").trim(),
@@ -96,6 +138,10 @@ function readForm() {
 
 function fillForm(settings) {
   for (const [key, value] of Object.entries(settings)) {
+    if (key === "openaiApiKey") {
+      continue;
+    }
+
     const field = form.elements.namedItem(key);
     if (field) {
       if (field instanceof HTMLInputElement && field.type === "checkbox") {
@@ -108,6 +154,20 @@ function fillForm(settings) {
   }
 }
 
+function renderKeyStatus(keyState, overrideMessage = "", tone = "") {
+  if (overrideMessage) {
+    setKeyStatus(overrideMessage, tone);
+    return;
+  }
+
+  if (keyState?.hasOpenAIKey) {
+    setKeyStatus(`Key saved ${keyState.maskedPreview || ""}`.trim(), "success");
+    return;
+  }
+
+  setKeyStatus("No key configured.");
+}
+
 function setStatus(message, tone = "") {
   status.textContent = message;
   status.classList.remove("is-error", "is-success");
@@ -117,6 +177,34 @@ function setStatus(message, tone = "") {
   if (tone === "success") {
     status.classList.add("is-success");
   }
+}
+
+function setKeyStatus(message, tone = "") {
+  keyStatus.textContent = message;
+  keyStatus.classList.remove("is-error", "is-success");
+  if (tone === "error") {
+    keyStatus.classList.add("is-error");
+  }
+  if (tone === "success") {
+    keyStatus.classList.add("is-success");
+  }
+}
+
+async function loadOptionsState() {
+  const response = await sendMessage({
+    type: "getOptionsState"
+  });
+
+  return {
+    settings: {
+      ...DEFAULT_SETTINGS,
+      ...response.result.settings
+    },
+    keyStatus: response.result.keyStatus || {
+      hasOpenAIKey: false,
+      maskedPreview: ""
+    }
+  };
 }
 
 function sendMessage(message) {
@@ -150,11 +238,6 @@ function truncate(value, limit) {
   return `${text.slice(0, limit - 3)}...`;
 }
 
-function migrateLegacySettings(settings) {
-  const next = { ...settings };
-  if (typeof next.summaryCacheEnabled === "undefined") {
-    next.summaryCacheEnabled = true;
-  }
-
-  return next;
+function eventTargetsSecretField(event) {
+  return Boolean(event?.target?.id === "openaiApiKey");
 }
