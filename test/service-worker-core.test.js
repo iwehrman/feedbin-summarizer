@@ -27,6 +27,7 @@ test("normalizeSettings applies defaults and sanitizes values", () => {
     openaiReasoningEffort: "minimal",
     openaiVerbosity: "high",
     summaryCacheEnabled: false,
+    prefetchDebugVisualizationEnabled: false,
     systemPrompt: "Return plain text."
   });
 });

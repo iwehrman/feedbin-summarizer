@@ -130,14 +130,19 @@ async function handleUpdateOptionsSettings(payload) {
     ...currentSettings,
     ...payload
   });
+  const shouldClearContentState = didContentInvalidationChange(currentSettings, nextSettings);
 
   await chrome.storage.local.set({
     [SETTINGS_STORAGE_KEY]: nextSettings
   });
 
-  if (didContentInvalidationChange(currentSettings, nextSettings)) {
+  if (shouldClearContentState || currentSettings.prefetchDebugVisualizationEnabled !== nextSettings.prefetchDebugVisualizationEnabled) {
     await broadcastToFeedbinTabs({
-      type: "settingsUpdated"
+      type: "settingsUpdated",
+      payload: {
+        clearPrefetchedSummaries: shouldClearContentState,
+        prefetchDebugVisualizationEnabled: nextSettings.prefetchDebugVisualizationEnabled
+      }
     });
   }
 
@@ -330,8 +335,15 @@ async function getUserSettings() {
 }
 
 async function getFeedbinState() {
-  const stored = await chrome.storage.local.get(FEEDBIN_STATE_STORAGE_KEY);
-  return normalizeFeedbinState(stored[FEEDBIN_STATE_STORAGE_KEY]);
+  const [storedFeedbinState, settings] = await Promise.all([
+    chrome.storage.local.get(FEEDBIN_STATE_STORAGE_KEY),
+    getUserSettings()
+  ]);
+
+  return {
+    ...normalizeFeedbinState(storedFeedbinState[FEEDBIN_STATE_STORAGE_KEY]),
+    prefetchDebugVisualizationEnabled: Boolean(settings.prefetchDebugVisualizationEnabled)
+  };
 }
 
 async function ensureStoredSettings() {

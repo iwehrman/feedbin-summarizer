@@ -29,6 +29,7 @@ test("options page can update settings without exposing secrets", () => {
         openaiReasoningEffort: "minimal",
         openaiVerbosity: "low",
         summaryCacheEnabled: false,
+        prefetchDebugVisualizationEnabled: true,
         systemPrompt: "Return plain text."
       }
     },
@@ -41,6 +42,7 @@ test("options page can update settings without exposing secrets", () => {
     openaiReasoningEffort: "minimal",
     openaiVerbosity: "low",
     summaryCacheEnabled: false,
+    prefetchDebugVisualizationEnabled: true,
     systemPrompt: "Return plain text."
   });
 });

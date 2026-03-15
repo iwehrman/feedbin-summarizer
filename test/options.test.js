@@ -22,6 +22,7 @@ const OPTIONS_HTML = `
         <option value="low">Low</option>
       </select>
       <input type="checkbox" name="summaryCacheEnabled" id="summaryCacheEnabled">
+      <input type="checkbox" name="prefetchDebugVisualizationEnabled" id="prefetchDebugVisualizationEnabled">
       <textarea name="systemPrompt" id="systemPrompt"></textarea>
       <span id="key-status"></span>
       <span id="status"></span>
@@ -46,6 +47,7 @@ test("options page never repopulates the saved API key", async () => {
                   openaiReasoningEffort: "minimal",
                   openaiVerbosity: "low",
                   summaryCacheEnabled: true,
+                  prefetchDebugVisualizationEnabled: true,
                   systemPrompt: "Return plain text."
                 },
                 keyStatus: {

@@ -15,6 +15,9 @@ export function normalizeSettings(rawSettings) {
     openaiReasoningEffort: normalizeChoice(rawSettings?.openaiReasoningEffort, REASONING_EFFORT_VALUES, DEFAULT_SETTINGS.openaiReasoningEffort),
     openaiVerbosity: normalizeChoice(rawSettings?.openaiVerbosity, VERBOSITY_VALUES, DEFAULT_SETTINGS.openaiVerbosity),
     summaryCacheEnabled: typeof rawSettings?.summaryCacheEnabled === "boolean" ? rawSettings.summaryCacheEnabled : DEFAULT_SETTINGS.summaryCacheEnabled,
+    prefetchDebugVisualizationEnabled: typeof rawSettings?.prefetchDebugVisualizationEnabled === "boolean"
+      ? rawSettings.prefetchDebugVisualizationEnabled
+      : DEFAULT_SETTINGS.prefetchDebugVisualizationEnabled,
     systemPrompt: normalizeString(rawSettings?.systemPrompt, DEFAULT_SETTINGS.systemPrompt, 4000)
   };
 }

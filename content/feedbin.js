@@ -9,7 +9,7 @@
   const EXTRACT_FORM_SELECTOR = '[data-behavior="toggle_extract"]';
   const FEED_CLASS_PATTERN = /\bentry-feed-(\d+)\b/;
   const FEED_LIST_SELECTOR = ".feeds-target.feed-list";
-  const FEED_ITEM_SELECTOR = `${FEED_LIST_SELECTOR} [data-feed-id]`;
+  const FEED_ITEM_SELECTOR = `${FEED_LIST_SELECTOR} li[data-feed-id]`;
   const ENTRY_LIST_SELECTOR = "ul.entries-target";
   const ENTRY_ROW_SELECTOR = `${ENTRY_LIST_SELECTOR} li.entry-summary`;
   const ENTRY_ROW_LINK_SELECTOR = ".entry-summary-link";
@@ -17,6 +17,7 @@
   const PREFETCH_SELECTION_WAIT_MS = 4000;
   const PREFETCHED_SUMMARY_LIMIT = 12;
   const PREPARING_SWAP_CLASS = "feedbin-summarizer-preparing-swap";
+  const PREFETCH_DEBUG_DOT_CLASS = "feedbin-summarizer-prefetch-dot";
   const ACTIVE_ICON_COLOR = "rgb(7, 172, 71)";
   const DEFAULT_OFF_ICON_COLOR = "rgb(246, 246, 246)";
 
@@ -26,6 +27,7 @@
     refreshTimer: null,
     summaryFeedPreferences: {},
     preferencesLoaded: false,
+    prefetchDebugVisualizationEnabled: false,
     lastViewedEntryId: "",
     lastAutoAttemptEntryId: "",
     suppressExtractPreferenceUpdate: false,
@@ -38,6 +40,7 @@
     unreadFeedPrefetchRequestId: "",
     unreadFeedPrefetchToken: 0,
     prefetchedSummaries: new Map(),
+    prefetchDebugEntries: new Map(),
     pendingPrefetchedEntryId: "",
     pendingPrefetchedSwapTimer: null
   };
@@ -109,6 +112,7 @@
       }
       managePrefetchQueue(null);
       manageUnreadFeedPrefetch(null);
+      syncPrefetchDebugIndicators(null);
       return;
     }
 
@@ -180,6 +184,7 @@
     maybeAutoApplySummary(context, button);
     managePrefetchQueue(context);
     manageUnreadFeedPrefetch(context);
+    syncPrefetchDebugIndicators(context);
   }
 
   function buildToolbarButtonWrap() {
@@ -290,7 +295,7 @@
         }
       }
 
-      storePrefetchedSummary(context.entryId, response.result.summaryText);
+      storePrefetchedSummary(context.entryId, response.result.summaryText, context.feedId);
       renderSummary(latestContext, response.result.summaryText, summaryState);
     } catch (error) {
       clearPendingPrefetchedSwap();
@@ -721,11 +726,13 @@
         type: "getFeedbinState"
       });
       state.summaryFeedPreferences = normalizeFeedPreferences(response.result.summaryFeedPreferences);
+      state.prefetchDebugVisualizationEnabled = Boolean(response.result.prefetchDebugVisualizationEnabled);
       state.preferencesLoaded = true;
       scheduleRefresh();
     } catch (error) {
       console.warn("Feedbin Summarizer: failed to load feed preferences.", error);
       state.summaryFeedPreferences = {};
+      state.prefetchDebugVisualizationEnabled = false;
       state.preferencesLoaded = true;
     }
   }
@@ -1078,6 +1085,7 @@
 
       const requestId = `prefetch:${feedId}:${candidate.entryId}:${Date.now()}`;
       state.activePrefetchRequestId = requestId;
+      markPrefetchFetching(candidate.entryId, candidate.feedId);
 
       try {
         const response = await sendMessage({
@@ -1091,11 +1099,12 @@
           }
         });
         if (response.result.summaryText) {
-          storePrefetchedSummary(candidate.entryId, response.result.summaryText);
+          storePrefetchedSummary(candidate.entryId, response.result.summaryText, candidate.feedId);
         }
       } catch (error) {
         console.error("Feedbin Summarizer prefetch:", error);
       } finally {
+        clearFetchingPrefetchState(candidate.entryId);
         if (state.activePrefetchRequestId === requestId) {
           state.activePrefetchRequestId = "";
         }
@@ -1120,6 +1129,7 @@
 
       const requestId = `unread-prefetch:${candidate.feedId}:${candidate.entryId}:${Date.now()}`;
       state.unreadFeedPrefetchRequestId = requestId;
+      markPrefetchFetching(candidate.entryId, candidate.feedId);
 
       try {
         const response = await sendMessage({
@@ -1134,11 +1144,12 @@
         });
 
         if (response.result.summaryText) {
-          storePrefetchedSummary(candidate.entryId, response.result.summaryText);
+          storePrefetchedSummary(candidate.entryId, response.result.summaryText, candidate.feedId);
         }
       } catch (error) {
         console.error("Feedbin Summarizer unread prefetch:", error);
       } finally {
+        clearFetchingPrefetchState(candidate.entryId);
         if (state.unreadFeedPrefetchRequestId === requestId) {
           state.unreadFeedPrefetchRequestId = "";
         }
@@ -1159,10 +1170,13 @@
           return [];
         }
 
+        const candidateBatch = candidates.slice(index, index + 20);
+        const candidatesByEntryId = new Map(candidateBatch.map(candidate => [candidate.entryId, candidate]));
+
         const response = await sendMessage({
           type: "checkCachedSummaries",
           payload: {
-            articles: candidates.slice(index, index + 20).map(candidate => ({
+            articles: candidateBatch.map(candidate => ({
               entryId: candidate.entryId,
               sourceUrl: candidate.sourceUrl,
               title: candidate.title,
@@ -1176,7 +1190,11 @@
         }
 
         for (const cachedSummary of response.result.cachedSummaries || []) {
-          storePrefetchedSummary(cachedSummary.entryId, cachedSummary.summaryText);
+          storePrefetchedSummary(
+            cachedSummary.entryId,
+            cachedSummary.summaryText,
+            candidatesByEntryId.get(cachedSummary.entryId)?.feedId || ""
+          );
         }
 
         for (const entryId of response.result.cachedEntryIds || []) {
@@ -1277,7 +1295,7 @@
     return state.prefetchedSummaries.get(String(entryId || "")) || "";
   }
 
-  function storePrefetchedSummary(entryId, summaryText) {
+  function storePrefetchedSummary(entryId, summaryText, feedId = "") {
     const normalizedEntryId = String(entryId || "").trim();
     const normalizedSummary = String(summaryText || "").trim();
     if (!normalizedEntryId || !normalizedSummary) {
@@ -1286,6 +1304,7 @@
 
     state.prefetchedSummaries.delete(normalizedEntryId);
     state.prefetchedSummaries.set(normalizedEntryId, normalizedSummary);
+    upsertPrefetchDebugEntry(normalizedEntryId, feedId, "ready");
 
     while (state.prefetchedSummaries.size > PREFETCHED_SUMMARY_LIMIT) {
       const oldestEntryId = state.prefetchedSummaries.keys().next().value;
@@ -1294,10 +1313,287 @@
       }
       state.prefetchedSummaries.delete(oldestEntryId);
     }
+
+    scheduleDebugRefresh();
+  }
+
+  function markPrefetchFetching(entryId, feedId) {
+    upsertPrefetchDebugEntry(entryId, feedId, "fetching");
+    scheduleDebugRefresh();
+  }
+
+  function clearFetchingPrefetchState(entryId) {
+    const normalizedEntryId = String(entryId || "").trim();
+    if (!normalizedEntryId) {
+      return;
+    }
+
+    const entry = state.prefetchDebugEntries.get(normalizedEntryId);
+    if (!entry || entry.status !== "fetching") {
+      return;
+    }
+
+    state.prefetchDebugEntries.delete(normalizedEntryId);
+    scheduleDebugRefresh();
+  }
+
+  function upsertPrefetchDebugEntry(entryId, feedId, status) {
+    const normalizedEntryId = String(entryId || "").trim();
+    const normalizedFeedId = String(feedId || "").trim();
+    if (!normalizedEntryId) {
+      return;
+    }
+
+    const previousEntry = state.prefetchDebugEntries.get(normalizedEntryId);
+    state.prefetchDebugEntries.delete(normalizedEntryId);
+    state.prefetchDebugEntries.set(normalizedEntryId, {
+      status,
+      feedId: normalizedFeedId || previousEntry?.feedId || ""
+    });
+
+    while (state.prefetchDebugEntries.size > PREFETCHED_SUMMARY_LIMIT * 4) {
+      const oldestEntryId = state.prefetchDebugEntries.keys().next().value;
+      if (!oldestEntryId) {
+        break;
+      }
+      state.prefetchDebugEntries.delete(oldestEntryId);
+    }
+  }
+
+  function scheduleDebugRefresh() {
+    if (!state.prefetchDebugVisualizationEnabled) {
+      return;
+    }
+
+    scheduleRefresh();
+  }
+
+  function syncPrefetchDebugIndicators(context) {
+    if (!state.prefetchDebugVisualizationEnabled) {
+      removePrefetchDebugIndicators();
+      return;
+    }
+
+    syncArticlePrefetchIndicators(context);
+    syncFeedPrefetchIndicators();
+  }
+
+  function syncArticlePrefetchIndicators(context) {
+    const rows = Array.from(document.querySelectorAll(ENTRY_ROW_SELECTOR));
+    const visibleEntryIds = new Set();
+
+    for (const row of rows) {
+      const entryId = row.getAttribute("data-entry-id") || "";
+      const feedId = extractFeedId(row, row) || extractRowFeedId(row);
+      if (!entryId || !feedId) {
+        removeDotFromTarget(resolveArticleIndicatorTarget(row));
+        continue;
+      }
+
+      visibleEntryIds.add(entryId);
+      const stateValue = getArticlePrefetchIndicatorState(entryId, feedId, context);
+      const target = resolveArticleIndicatorTarget(row);
+      if (!stateValue) {
+        removeDotFromTarget(target);
+        continue;
+      }
+
+      upsertPrefetchDot(target, stateValue, "article");
+    }
+
+    for (const [entryId, entry] of state.prefetchDebugEntries.entries()) {
+      if (!visibleEntryIds.has(entryId) && entry.status === "fetching") {
+        state.prefetchDebugEntries.delete(entryId);
+      }
+    }
+  }
+
+  function syncFeedPrefetchIndicators() {
+    for (const feedItem of document.querySelectorAll(FEED_ITEM_SELECTOR)) {
+      const feedId = feedItem.getAttribute("data-feed-id") || "";
+      const target = resolveFeedIndicatorTarget(feedItem);
+      const stateValue = getFeedPrefetchIndicatorState(feedId);
+      removeExtraFeedDots(feedItem, target);
+      if (!stateValue) {
+        removeDotFromTarget(target);
+        continue;
+      }
+
+      upsertPrefetchDot(target, stateValue, "feed");
+    }
+  }
+
+  function removePrefetchDebugIndicators() {
+    for (const dot of document.querySelectorAll(`.${PREFETCH_DEBUG_DOT_CLASS}`)) {
+      dot.remove();
+    }
+  }
+
+  function getArticlePrefetchIndicatorState(entryId, feedId, context) {
+    if (!state.summaryFeedPreferences[feedId]) {
+      return "";
+    }
+
+    const debugEntry = state.prefetchDebugEntries.get(entryId);
+    if (debugEntry?.status === "fetching") {
+      return "fetching";
+    }
+
+    if (debugEntry?.status === "ready" || getPrefetchedSummary(entryId)) {
+      return "ready";
+    }
+
+    if (state.pendingRequest && state.pendingRequest.entryId === entryId) {
+      return "fetching";
+    }
+
+    if (context && context.entryId === entryId && state.activeSummary && state.activeSummary.entryId === entryId) {
+      return "ready";
+    }
+
+    return "eligible";
+  }
+
+  function getFeedPrefetchIndicatorState(feedId) {
+    if (!feedId || !state.summaryFeedPreferences[feedId]) {
+      return "";
+    }
+
+    let hasReady = false;
+    for (const entry of state.prefetchDebugEntries.values()) {
+      if (entry.feedId !== feedId) {
+        continue;
+      }
+
+      if (entry.status === "fetching") {
+        return "fetching";
+      }
+
+      if (entry.status === "ready") {
+        hasReady = true;
+      }
+    }
+
+    return hasReady ? "ready" : "";
+  }
+
+  function resolveFeedIndicatorTarget(feedItem) {
+    if (!(feedItem instanceof HTMLElement)) {
+      return null;
+    }
+
+    const selectors = [
+      ".feed-label",
+      ".feed-link .collection-label",
+      ".feed-link .collection-label-wrap",
+      ".feed-link .title",
+      ".feed-link .label",
+      ".feed-link .name",
+      ".collection-label",
+      ".collection-label-wrap",
+      ".label",
+      ".name",
+      ".title",
+      ".feed-link"
+    ];
+
+    for (const selector of selectors) {
+      const match = feedItem.querySelector(selector);
+      if (match instanceof HTMLElement) {
+        return match;
+      }
+    }
+
+    return feedItem.querySelector(".feed-link") || feedItem;
+  }
+
+  function resolveArticleIndicatorTarget(row) {
+    if (!(row instanceof HTMLElement)) {
+      return null;
+    }
+
+    const selectors = [
+      ".meta .time",
+      ".meta time",
+      ".meta .date",
+      "time",
+      ".time",
+      ".date",
+      ".timestamp",
+      ".published",
+      ".entry-meta",
+      ".meta"
+    ];
+
+    for (const selector of selectors) {
+      const match = row.querySelector(selector);
+      if (match instanceof HTMLElement) {
+        return match;
+      }
+    }
+
+    return row.querySelector(ENTRY_ROW_LINK_SELECTOR) || row;
+  }
+
+  function upsertPrefetchDot(target, stateValue, kind) {
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    let dot = target.querySelector(`:scope > .${PREFETCH_DEBUG_DOT_CLASS}`);
+    if (!dot) {
+      dot = document.createElement("span");
+      dot.className = `${PREFETCH_DEBUG_DOT_CLASS} ${PREFETCH_DEBUG_DOT_CLASS}--${kind}`;
+      dot.setAttribute("aria-hidden", "true");
+      target.append(dot);
+    }
+
+    if (dot.dataset.state !== stateValue) {
+      dot.dataset.state = stateValue;
+    }
+
+    const title = getPrefetchDebugLabel(stateValue);
+    if (dot.title !== title) {
+      dot.title = title;
+    }
+  }
+
+  function removeDotFromTarget(target) {
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    target.querySelector(`:scope > .${PREFETCH_DEBUG_DOT_CLASS}`)?.remove();
+  }
+
+  function removeExtraFeedDots(feedItem, target) {
+    if (!(feedItem instanceof HTMLElement)) {
+      return;
+    }
+
+    for (const dot of feedItem.querySelectorAll(`.${PREFETCH_DEBUG_DOT_CLASS}--feed`)) {
+      if (target instanceof HTMLElement && dot.parentElement === target) {
+        continue;
+      }
+
+      dot.remove();
+    }
+  }
+
+  function getPrefetchDebugLabel(stateValue) {
+    switch (stateValue) {
+      case "fetching":
+        return "Prefetch in progress";
+      case "ready":
+        return "Prefetched or cached";
+      default:
+        return "Prefetch enabled";
+    }
   }
 
   function clearPrefetchedSummaries() {
     state.prefetchedSummaries.clear();
+    state.prefetchDebugEntries.clear();
     clearPendingPrefetchedSwap();
   }
 
@@ -1314,7 +1610,10 @@
     }
 
     if (message.type === "settingsUpdated") {
-      clearPrefetchedSummaries();
+      state.prefetchDebugVisualizationEnabled = Boolean(message.payload?.prefetchDebugVisualizationEnabled);
+      if (message.payload?.clearPrefetchedSummaries !== false) {
+        clearPrefetchedSummaries();
+      }
       scheduleRefresh();
     }
   }

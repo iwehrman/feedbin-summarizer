@@ -3,6 +3,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   openaiReasoningEffort: "minimal",
   openaiVerbosity: "low",
   summaryCacheEnabled: true,
+  prefetchDebugVisualizationEnabled: false,
   systemPrompt: [
     "You summarize articles for a single user inside Feedbin.",
     "Prioritize what happened, why it matters, and any important nuance, dates, names, or numbers.",
@@ -34,6 +35,7 @@ export const CONTENT_INVALIDATION_KEYS = new Set([
   "openaiReasoningEffort",
   "openaiVerbosity",
   "summaryCacheEnabled",
+  "prefetchDebugVisualizationEnabled",
   "systemPrompt"
 ]);
 

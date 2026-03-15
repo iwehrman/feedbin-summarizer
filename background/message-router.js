@@ -77,6 +77,9 @@ function validateSettingsPayload(payload) {
     openaiReasoningEffort: optionalChoice(source.openaiReasoningEffort, ["", "minimal", "low", "medium", "high"]),
     openaiVerbosity: optionalChoice(source.openaiVerbosity, ["", "low", "medium", "high"]),
     summaryCacheEnabled: typeof source.summaryCacheEnabled === "boolean" ? source.summaryCacheEnabled : true,
+    prefetchDebugVisualizationEnabled: typeof source.prefetchDebugVisualizationEnabled === "boolean"
+      ? source.prefetchDebugVisualizationEnabled
+      : false,
     systemPrompt: optionalString(source.systemPrompt, 4000)
   };
 }

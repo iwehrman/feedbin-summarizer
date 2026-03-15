@@ -132,6 +132,7 @@ function readNonSecretSettings() {
     openaiReasoningEffort: String(data.get("openaiReasoningEffort") || "").trim(),
     openaiVerbosity: String(data.get("openaiVerbosity") || "").trim(),
     summaryCacheEnabled: data.get("summaryCacheEnabled") === "on",
+    prefetchDebugVisualizationEnabled: data.get("prefetchDebugVisualizationEnabled") === "on",
     systemPrompt: String(data.get("systemPrompt") || DEFAULT_SETTINGS.systemPrompt).trim()
   };
 }

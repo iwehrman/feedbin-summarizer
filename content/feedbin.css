@@ -96,3 +96,30 @@
 html.feedbin-summarizer-preparing-swap .entry-content.current .content-styles {
   visibility: hidden;
 }
+
+.feedbin-summarizer-prefetch-dot {
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+  background: rgba(148, 148, 148, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+.feedbin-summarizer-prefetch-dot[data-state="fetching"] {
+  background: rgb(221, 143, 29);
+}
+
+.feedbin-summarizer-prefetch-dot[data-state="ready"] {
+  background: rgb(7, 172, 71);
+}
+
+.feedbin-summarizer-prefetch-dot--feed {
+  margin-left: 0.4rem;
+}
+
+.feedbin-summarizer-prefetch-dot--article {
+  margin-left: 0.3rem;
+}
