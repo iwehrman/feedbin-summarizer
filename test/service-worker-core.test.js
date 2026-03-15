@@ -9,6 +9,7 @@ import {
   normalizeSettings,
   normalizeVisibleArticleText,
   pruneSummaryCache,
+  shouldPreferVisibleArticleText,
   storeCachedSummaryInCache
 } from "../background/service-worker-core.js";
 
@@ -76,6 +77,17 @@ test("normalizeVisibleArticleText strips loading placeholders", () => {
   assert.equal(normalizeVisibleArticleText("Loading full content..."), "");
   assert.equal(normalizeVisibleArticleText("Loading"), "");
   assert.equal(normalizeVisibleArticleText("Real article text"), "Real article text");
+});
+
+test("shouldPreferVisibleArticleText only trusts substantial, non-truncated visible text", () => {
+  assert.equal(shouldPreferVisibleArticleText("Brief overview of the article..."), false);
+  assert.equal(shouldPreferVisibleArticleText(""), false);
+  assert.equal(
+    shouldPreferVisibleArticleText(
+      Array.from({ length: 320 }, () => "word").join(" ")
+    ),
+    true
+  );
 });
 
 test("buildSummaryPrompt produces the expected prompt envelope", () => {

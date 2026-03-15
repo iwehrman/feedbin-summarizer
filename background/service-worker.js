@@ -22,6 +22,7 @@ import {
   normalizeString,
   normalizeVisibleArticleText,
   pruneSummaryCache,
+  shouldPreferVisibleArticleText,
   shallowEqual,
   storeCachedSummaryInCache
 } from "./service-worker-core.js";
@@ -466,8 +467,9 @@ async function getOpenAIConfig(settings) {
 async function getSourceMaterial(payload, signal) {
   const sourceUrl = normalizeSourceUrl(payload.sourceUrl || "");
   const visibleArticleText = normalizeVisibleArticleText(payload.articleText || "");
+  const visibleTextLooksComplete = shouldPreferVisibleArticleText(visibleArticleText);
 
-  if (payload.preferVisibleArticleText && visibleArticleText) {
+  if (payload.preferVisibleArticleText && visibleArticleText && visibleTextLooksComplete) {
     return {
       articleText: visibleArticleText,
       contentSourceLabel: "Feedbin full content",

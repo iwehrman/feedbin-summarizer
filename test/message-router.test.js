@@ -83,3 +83,23 @@ test("content scripts can only submit validated article data", () => {
   assert.equal(request.payload.entryId, "123");
   assert.equal(request.payload.preferVisibleArticleText, true);
 });
+
+test("content scripts may submit a source URL even when visible article text is empty", () => {
+  const request = normalizeIncomingMessage(
+    {
+      type: "summarizeArticle",
+      payload: {
+        entryId: "124",
+        title: "Source-only article",
+        sourceUrl: "https://example.com/full-story",
+        articleText: "",
+        preferVisibleArticleText: true
+      }
+    },
+    contentSender
+  );
+
+  assert.equal(request.type, "summarizeArticle");
+  assert.equal(request.payload.articleText, "");
+  assert.equal(request.payload.sourceUrl, "https://example.com/full-story");
+});

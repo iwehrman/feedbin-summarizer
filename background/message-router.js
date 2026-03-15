@@ -104,7 +104,7 @@ function validateArticlePayload(payload) {
     entryId: requiredString(source.entryId, 120),
     title: optionalString(source.title, 500),
     sourceUrl: optionalString(source.sourceUrl, 2000),
-    articleText: requiredString(source.articleText, 60000),
+    articleText: optionalString(source.articleText, 60000),
     preferVisibleArticleText: Boolean(source.preferVisibleArticleText)
   };
 }

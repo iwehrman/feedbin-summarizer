@@ -244,8 +244,8 @@
     }
 
     const articleText = extractArticleText(context.bodyNode);
-    if (!articleText) {
-      console.error("Feedbin Summarizer: no article text was available to summarize.");
+    if (!articleText && !context.sourceUrl) {
+      console.error("Feedbin Summarizer: no article text or source URL was available to summarize.");
       return;
     }
 

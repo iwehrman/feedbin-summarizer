@@ -6,6 +6,8 @@ import {
 
 const REASONING_EFFORT_VALUES = ["", "minimal", "low", "medium", "high"];
 const VERBOSITY_VALUES = ["", "low", "medium", "high"];
+const MIN_COMPLETE_VISIBLE_ARTICLE_CHARS = 1800;
+const MIN_COMPLETE_VISIBLE_ARTICLE_WORDS = 260;
 
 export function normalizeSettings(rawSettings) {
   return {
@@ -180,6 +182,22 @@ export function normalizeVisibleArticleText(value) {
   }
 
   return text;
+}
+
+export function shouldPreferVisibleArticleText(value) {
+  const text = normalizeVisibleArticleText(value);
+  if (!text) {
+    return false;
+  }
+
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const endsWithEllipsis = /(?:\.\.\.|…)\s*$/.test(text);
+
+  if (endsWithEllipsis) {
+    return false;
+  }
+
+  return text.length >= MIN_COMPLETE_VISIBLE_ARTICLE_CHARS || wordCount >= MIN_COMPLETE_VISIBLE_ARTICLE_WORDS;
 }
 
 export function normalizeSourceUrl(value) {

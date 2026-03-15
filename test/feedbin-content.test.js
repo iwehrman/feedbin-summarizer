@@ -112,3 +112,64 @@ test("content script injects the summary button, matches toolbar color, and togg
     assert.equal(button.classList.contains("is-active"), false);
   });
 });
+
+test("content script still requests a summary when the visible article body is empty but a source URL exists", async () => {
+  await withJSDOM(FEEDBIN_FIXTURE.replace("<p>Original article body.</p>", ""), async () => {
+    const sentMessages = [];
+
+    globalThis.chrome = {
+      runtime: {
+        onMessage: {
+          addListener() {}
+        },
+        sendMessage(message, callback) {
+          sentMessages.push(message);
+
+          setTimeout(() => {
+            if (message.type === "getFeedbinState") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: {}
+                }
+              });
+              return;
+            }
+
+            if (message.type === "setFeedSummaryPreference") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: { 42: true }
+                }
+              });
+              return;
+            }
+
+            if (message.type === "summarizeArticle") {
+              callback({
+                ok: true,
+                result: {
+                  summaryText: "Fetched from source."
+                }
+              });
+              return;
+            }
+
+            callback({ ok: true, result: {} });
+          }, 0);
+        }
+      }
+    };
+
+    await importFresh("content/feedbin.js");
+    const button = await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
+    button.click();
+
+    await waitFor(() => sentMessages.some(message => message.type === "summarizeArticle"));
+    const summaryMessage = sentMessages.find(message => message.type === "summarizeArticle");
+
+    assert.equal(summaryMessage.payload.sourceUrl, "https://example.com/story");
+    assert.equal(summaryMessage.payload.articleText, "");
+  });
+});
