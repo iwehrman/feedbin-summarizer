@@ -5,6 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "node --test",
+    "lint": "eslint . --ext .js,.mjs --cache --cache-location .cache/eslint/",
+    "lint:fix": "npm run lint -- --fix",
     "prepare": "husky",
     "build:package": "node scripts/build-package.mjs"
   },
@@ -13,6 +15,7 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
+    "eslint": "^8.57.1",
     "husky": "^9.1.7",
     "jsdom": "^28.1.0",
     "playwright": "^1.58.2"

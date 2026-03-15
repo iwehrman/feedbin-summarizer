@@ -48,7 +48,7 @@ test("saveOpenAIKey persists to local and session storage without echoing the ra
 });
 
 test("getOpenAIKey prefers session storage and primes it from persisted storage", async () => {
-  const { chrome, localArea, sessionArea } = createChromeMock({
+  const { chrome, sessionArea } = createChromeMock({
     local: {
       [SECRETS_STORAGE_KEY]: {
         openaiApiKey: "sk-local_1234567890"

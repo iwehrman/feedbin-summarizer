@@ -1,0 +1,87 @@
+{
+  "root": true,
+  "ignorePatterns": [
+    "dist/",
+    "node_modules/"
+  ],
+  "env": {
+    "node": true,
+    "es2021": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module"
+  },
+  "extends": "eslint:recommended",
+  "overrides": [
+    {
+      "files": [
+        "background/*.js"
+      ],
+      "env": {
+        "browser": true,
+        "serviceworker": true,
+        "webextensions": true
+      },
+      "globals": {
+        "clients": "readonly"
+      }
+    },
+    {
+      "files": [
+        "content/*.js",
+        "options/*.js",
+        "offscreen/*.js"
+      ],
+      "env": {
+        "browser": true,
+        "webextensions": true
+      }
+    },
+    {
+      "files": [
+        "test/**/*.js",
+        "test-support/**/*.js"
+      ],
+      "env": {
+        "node": true,
+        "browser": true
+      }
+    }
+  ],
+  "rules": {
+    "arrow-parens": "off",
+    "func-name-matching": "off",
+    "func-names": "off",
+    "indent": "off",
+    "line-comment-position": "off",
+    "lines-around-directive": "off",
+    "multiline-ternary": "off",
+    "newline-per-chained-call": "off",
+    "no-case-declarations": "off",
+    "no-constant-condition": "off",
+    "no-continue": "off",
+    "no-empty-function": "off",
+    "no-inline-comments": "off",
+    "no-inner-declarations": "off",
+    "no-process-exit": "off",
+    "no-undefined": "off",
+    "no-use-before-define": "off",
+    "no-warning-comments": "off",
+    "operator-linebreak": "off",
+    "prefer-const": "off",
+    "quote-props": "off",
+    "sort-imports": "off",
+    "sort-keys": "off",
+    "strict": "off",
+    "wrap-regex": "off",
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ]
+  }
+}
