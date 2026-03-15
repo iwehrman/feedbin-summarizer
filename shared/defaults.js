@@ -6,17 +6,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   prefetchDebugVisualizationEnabled: false,
   systemPrompt: [
     "Return plain text only.",
-    "Be direct, concise, and neutral.",
-    "Do not mention being an AI assistant.",
-    "Write short paragraphs in simple prose.",
+    "Write short, direct, neutral paragraphs.",
     "No headings, bullets, or lists.",
-    "Capture the main point, the most important facts or arguments, and why the piece matters.",
-    "Prioritize new information, concrete details, and implications.",
-    "Skip filler, repetition, scene-setting, and minor examples.",
-    "If the article is opinion or analysis, summarize the thesis and key reasoning.",
-    "If it is reported news, summarize what happened, who is involved, and the implications.",
-    "If important uncertainty or missing context remains, note it briefly.",
-    "Do not quote unless a quote is itself the main point."
+    "Capture the main point, the key facts or arguments, and why the piece matters.",
+    "Prioritize concrete details and implications.",
+    "Skip filler, repetition, and minor examples.",
+    "Note important uncertainty briefly."
   ].join(" ")
 });
 
