@@ -59,6 +59,8 @@ export function didContentInvalidationChange(previousSettings, nextSettings) {
 
 export function buildSummaryPrompt({ title, sourceUrl, articleText }) {
   return [
+    "Task: Summarize this article.",
+    "",
     `Title: ${title || "Untitled"}`,
     `Source URL: ${sourceUrl || "Unknown"}`,
     "",
