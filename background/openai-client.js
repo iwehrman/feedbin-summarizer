@@ -42,7 +42,7 @@ export async function summarizeWithOpenAI(openAIConfig, input, signal) {
   return text.trim();
 }
 
-function extractResponseText(payload) {
+export function extractResponseText(payload) {
   if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
     return payload.output_text;
   }
@@ -59,7 +59,7 @@ function extractResponseText(payload) {
   return textChunks.join("\n").trim();
 }
 
-function getApiErrorMessage(payload, fallback) {
+export function getApiErrorMessage(payload, fallback) {
   const message =
     payload?.error?.message ||
     payload?.error?.type ||
@@ -69,7 +69,7 @@ function getApiErrorMessage(payload, fallback) {
   return sanitizeErrorMessage(message, fallback);
 }
 
-function buildMissingOutputError(payload, model) {
+export function buildMissingOutputError(payload, model) {
   const incompleteReason = payload?.incomplete_details?.reason || "";
   const reasoningTokens = payload?.usage?.output_tokens_details?.reasoning_tokens;
   const hasReasoningOnlyOutput =
@@ -94,7 +94,7 @@ function buildMissingOutputError(payload, model) {
   return "OpenAI returned no summary text.";
 }
 
-function validateOpenAIEndpoint() {
+export function validateOpenAIEndpoint() {
   const url = new URL(OPENAI_RESPONSES_URL);
   if (url.origin !== OPENAI_API_ORIGIN || url.pathname !== "/v1/responses") {
     throw new Error("Blocked unexpected OpenAI endpoint.");

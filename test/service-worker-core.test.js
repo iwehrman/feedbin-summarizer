@@ -1,0 +1,153 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  buildSummaryCacheKeyForPayload,
+  buildSummaryPrompt,
+  didContentInvalidationChange,
+  getCachedSummaryFromCache,
+  normalizeSettings,
+  normalizeVisibleArticleText,
+  pruneSummaryCache,
+  storeCachedSummaryInCache
+} from "../background/service-worker-core.js";
+
+test("normalizeSettings applies defaults and sanitizes values", () => {
+  const settings = normalizeSettings({
+    openaiModel: "  gpt-5-nano  ",
+    openaiReasoningEffort: "INVALID",
+    openaiVerbosity: "HIGH",
+    summaryCacheEnabled: false,
+    systemPrompt: "  Return plain text.  "
+  });
+
+  assert.deepEqual(settings, {
+    openaiModel: "gpt-5-nano",
+    openaiReasoningEffort: "minimal",
+    openaiVerbosity: "high",
+    summaryCacheEnabled: false,
+    systemPrompt: "Return plain text."
+  });
+});
+
+test("didContentInvalidationChange only tracks content-affecting settings", () => {
+  assert.equal(
+    didContentInvalidationChange(
+      {
+        openaiModel: "gpt-4.1-mini",
+        openaiReasoningEffort: "minimal",
+        openaiVerbosity: "low",
+        summaryCacheEnabled: true,
+        systemPrompt: "A"
+      },
+      {
+        openaiModel: "gpt-4.1-mini",
+        openaiReasoningEffort: "minimal",
+        openaiVerbosity: "low",
+        summaryCacheEnabled: true,
+        systemPrompt: "A"
+      }
+    ),
+    false
+  );
+
+  assert.equal(
+    didContentInvalidationChange(
+      {
+        openaiModel: "gpt-4.1-mini",
+        openaiReasoningEffort: "minimal",
+        openaiVerbosity: "low",
+        summaryCacheEnabled: true,
+        systemPrompt: "A"
+      },
+      {
+        openaiModel: "gpt-5-nano",
+        openaiReasoningEffort: "minimal",
+        openaiVerbosity: "low",
+        summaryCacheEnabled: true,
+        systemPrompt: "A"
+      }
+    ),
+    true
+  );
+});
+
+test("normalizeVisibleArticleText strips loading placeholders", () => {
+  assert.equal(normalizeVisibleArticleText("Loading full content..."), "");
+  assert.equal(normalizeVisibleArticleText("Loading"), "");
+  assert.equal(normalizeVisibleArticleText("Real article text"), "Real article text");
+});
+
+test("buildSummaryPrompt produces the expected prompt envelope", () => {
+  const prompt = buildSummaryPrompt({
+    title: "An article",
+    sourceUrl: "https://example.com/story",
+    articleText: "Body text"
+  });
+
+  assert.equal(
+    prompt,
+    "Title: An article\nSource URL: https://example.com/story\n\nArticle text:\nBody text"
+  );
+});
+
+test("buildSummaryCacheKeyForPayload is stable and changes when settings change", async () => {
+  const payload = {
+    entryId: "entry-1",
+    title: "An article",
+    sourceUrl: "https://example.com/story",
+    articleText: "Body text"
+  };
+  const settings = normalizeSettings({
+    openaiModel: "gpt-4.1-mini",
+    openaiReasoningEffort: "minimal",
+    openaiVerbosity: "low",
+    summaryCacheEnabled: true,
+    systemPrompt: "Return plain text."
+  });
+
+  const keyA = await buildSummaryCacheKeyForPayload(payload, settings);
+  const keyB = await buildSummaryCacheKeyForPayload(payload, settings);
+  const keyC = await buildSummaryCacheKeyForPayload(payload, {
+    ...settings,
+    openaiVerbosity: "high"
+  });
+
+  assert.equal(keyA, keyB);
+  assert.notEqual(keyA, keyC);
+  assert.match(keyA, /^v3:[a-f0-9]{64}$/);
+});
+
+test("cache helpers respect TTL, update access time, and prune oldest entries", () => {
+  const now = Date.UTC(2026, 2, 14, 12, 0, 0);
+  const cache = {};
+
+  storeCachedSummaryInCache(cache, "fresh", {
+    summaryText: "Summary A",
+    contentSourceLabel: "Full source page",
+    sourceWarning: ""
+  }, 36, now);
+
+  const freshEntry = getCachedSummaryFromCache(cache, "fresh", now + 1000);
+  assert.equal(freshEntry.summaryText, "Summary A");
+  assert.equal(cache.fresh.lastAccessedAt, now + 1000);
+
+  const expired = {
+    stale: {
+      summaryText: "Old",
+      createdAt: now - 5000,
+      lastAccessedAt: now - 5000,
+      expiresAt: now - 1
+    }
+  };
+  assert.equal(getCachedSummaryFromCache(expired, "stale", now), null);
+  assert.equal("stale" in expired, false);
+
+  const overflow = {
+    a: { summaryText: "A", createdAt: 1, lastAccessedAt: 1, expiresAt: now + 10000 },
+    b: { summaryText: "B", createdAt: 2, lastAccessedAt: 2, expiresAt: now + 10000 },
+    c: { summaryText: "C", createdAt: 3, lastAccessedAt: 3, expiresAt: now + 10000 }
+  };
+  pruneSummaryCache(overflow, now, 2);
+  assert.deepEqual(Object.keys(overflow).sort(), ["b", "c"]);
+});

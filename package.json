@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "node --test",
+    "prepare": "husky",
     "build:package": "node scripts/build-package.mjs"
   },
   "keywords": [],
@@ -12,6 +13,8 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
+    "husky": "^9.1.7",
+    "jsdom": "^28.1.0",
     "playwright": "^1.58.2"
   },
   "dependencies": {

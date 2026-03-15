@@ -9,6 +9,13 @@ let inMemorySecrets = {
   openaiApiKey: ""
 };
 
+export function resetSecretManagerForTests() {
+  accessInitialized = false;
+  inMemorySecrets = {
+    openaiApiKey: ""
+  };
+}
+
 export async function initializeSecretManager() {
   if (accessInitialized) {
     return;

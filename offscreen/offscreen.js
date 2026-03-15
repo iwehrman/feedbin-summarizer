@@ -1,21 +1,23 @@
 /* global Readability */
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || message.target !== "offscreen" || message.type !== "extractReadableArticle") {
-    return;
-  }
+if (globalThis.chrome?.runtime?.onMessage?.addListener) {
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!message || message.target !== "offscreen" || message.type !== "extractReadableArticle") {
+      return;
+    }
 
-  try {
-    const result = extractReadableArticle(message.payload || {});
-    sendResponse({ ok: true, result });
-  } catch (error) {
-    sendResponse({ ok: false, error: error.message || String(error) });
-  }
+    try {
+      const result = extractReadableArticle(message.payload || {});
+      sendResponse({ ok: true, result });
+    } catch (error) {
+      sendResponse({ ok: false, error: error.message || String(error) });
+    }
 
-  return true;
-});
+    return true;
+  });
+}
 
-function extractReadableArticle(payload) {
+export function extractReadableArticle(payload) {
   const html = String(payload?.html || "");
   const sourceUrl = String(payload?.url || "").trim();
 
@@ -45,7 +47,7 @@ function extractReadableArticle(payload) {
   };
 }
 
-function setDocumentBaseUrl(documentNode, sourceUrl) {
+export function setDocumentBaseUrl(documentNode, sourceUrl) {
   if (!sourceUrl) {
     return;
   }
@@ -60,13 +62,13 @@ function setDocumentBaseUrl(documentNode, sourceUrl) {
   base.setAttribute("href", sourceUrl);
 }
 
-function stripNonContentElements(documentNode) {
+export function stripNonContentElements(documentNode) {
   for (const node of documentNode.querySelectorAll("script, style, noscript, iframe, svg, canvas, form, dialog, template")) {
     node.remove();
   }
 }
 
-function extractFallbackText(documentNode) {
+export function extractFallbackText(documentNode) {
   const candidates = Array.from(documentNode.querySelectorAll("article, main, [role='main'], section, div"));
   let bestText = "";
   let bestScore = -Infinity;
@@ -96,7 +98,7 @@ function extractFallbackText(documentNode) {
   return bestText || normalizeText(documentNode.body?.textContent || "");
 }
 
-function normalizeText(value) {
+export function normalizeText(value) {
   return String(value || "")
     .replace(/\u00a0/g, " ")
     .replace(/[ \t]+/g, " ")
