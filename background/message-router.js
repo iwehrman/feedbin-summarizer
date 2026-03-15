@@ -1,6 +1,7 @@
 import {
   FEEDBIN_URL_PREFIX,
-  OPTIONS_PAGE_PATH
+  OPTIONS_PAGE_PATH,
+  PROVIDERS
 } from "../shared/defaults.js";
 
 const OPTIONS_PAGE_URL = chrome.runtime.getURL(OPTIONS_PAGE_PATH);
@@ -19,16 +20,18 @@ export function normalizeIncomingMessage(message, sender) {
 
   switch (type) {
     case "getOptionsState":
-    case "clearOpenAIKey":
-    case "testOpenAIConnection":
       ensureSender(senderKind, "options");
       return { type, payload: {}, senderKind, sender };
     case "updateOptionsSettings":
       ensureSender(senderKind, "options");
       return { type, payload: validateSettingsPayload(message.payload), senderKind, sender };
-    case "saveOpenAIKey":
+    case "saveProviderKey":
       ensureSender(senderKind, "options");
-      return { type, payload: validateSaveKeyPayload(message.payload), senderKind, sender };
+      return { type, payload: validateSaveProviderKeyPayload(message.payload), senderKind, sender };
+    case "clearProviderKey":
+    case "testProviderConnection":
+      ensureSender(senderKind, "options");
+      return { type, payload: validateProviderOnlyPayload(message.payload), senderKind, sender };
     case "getFeedbinState":
       ensureSender(senderKind, "content");
       return { type, payload: {}, senderKind, sender };
@@ -73,9 +76,11 @@ function ensureSender(actual, expected) {
 function validateSettingsPayload(payload) {
   const source = ensurePlainObject(payload, "settings payload");
   return {
+    provider: optionalChoice(source.provider, PROVIDERS),
     openaiModel: optionalString(source.openaiModel, 120),
     openaiReasoningEffort: optionalChoice(source.openaiReasoningEffort, ["", "minimal", "low", "medium", "high"]),
     openaiVerbosity: optionalChoice(source.openaiVerbosity, ["", "low", "medium", "high"]),
+    anthropicModel: optionalString(source.anthropicModel, 120),
     summaryCacheEnabled: typeof source.summaryCacheEnabled === "boolean" ? source.summaryCacheEnabled : true,
     prefetchDebugVisualizationEnabled: typeof source.prefetchDebugVisualizationEnabled === "boolean"
       ? source.prefetchDebugVisualizationEnabled
@@ -84,12 +89,20 @@ function validateSettingsPayload(payload) {
   };
 }
 
-function validateSaveKeyPayload(payload) {
+function validateProviderOnlyPayload(payload) {
+  const source = ensurePlainObject(payload, "provider payload");
+  return {
+    provider: requiredChoice(source.provider, PROVIDERS)
+  };
+}
+
+function validateSaveProviderKeyPayload(payload) {
   const source = ensurePlainObject(payload, "save key payload");
   return {
+    provider: requiredChoice(source.provider, PROVIDERS),
     // The options page may submit a fresh key, but no message type is allowed to
     // request the saved key back from the worker.
-    openaiApiKey: requiredString(source.openaiApiKey, 400)
+    apiKey: requiredString(source.apiKey, 400)
   };
 }
 
@@ -166,6 +179,15 @@ function optionalString(value, maxLength) {
 function optionalChoice(value, allowedValues) {
   const normalized = String(value || "").trim().toLowerCase();
   return allowedValues.includes(normalized) ? normalized : "";
+}
+
+function requiredChoice(value, allowedValues) {
+  const normalized = optionalChoice(value, allowedValues);
+  if (!normalized) {
+    throw new Error("Invalid choice field.");
+  }
+
+  return normalized;
 }
 
 function validateFeedId(value) {

@@ -15,17 +15,21 @@ import {
 
 test("normalizeSettings applies defaults and sanitizes values", () => {
   const settings = normalizeSettings({
+    provider: "ANTHROPIC",
     openaiModel: "  gpt-5-nano  ",
     openaiReasoningEffort: "INVALID",
     openaiVerbosity: "HIGH",
+    anthropicModel: " claude-haiku-4-5 ",
     summaryCacheEnabled: false,
     systemPrompt: "  Return plain text.  "
   });
 
   assert.deepEqual(settings, {
+    provider: "anthropic",
     openaiModel: "gpt-5-nano",
     openaiReasoningEffort: "minimal",
     openaiVerbosity: "high",
+    anthropicModel: "claude-haiku-4-5",
     summaryCacheEnabled: false,
     prefetchDebugVisualizationEnabled: false,
     systemPrompt: "Return plain text."
@@ -36,16 +40,20 @@ test("didContentInvalidationChange only tracks content-affecting settings", () =
   assert.equal(
     didContentInvalidationChange(
       {
+        provider: "openai",
         openaiModel: "gpt-4.1-mini",
         openaiReasoningEffort: "minimal",
         openaiVerbosity: "low",
+        anthropicModel: "claude-haiku-4-5",
         summaryCacheEnabled: true,
         systemPrompt: "A"
       },
       {
+        provider: "openai",
         openaiModel: "gpt-4.1-mini",
         openaiReasoningEffort: "minimal",
         openaiVerbosity: "low",
+        anthropicModel: "claude-sonnet-4-6",
         summaryCacheEnabled: true,
         systemPrompt: "A"
       }
@@ -56,16 +64,20 @@ test("didContentInvalidationChange only tracks content-affecting settings", () =
   assert.equal(
     didContentInvalidationChange(
       {
+        provider: "openai",
         openaiModel: "gpt-4.1-mini",
         openaiReasoningEffort: "minimal",
         openaiVerbosity: "low",
+        anthropicModel: "claude-haiku-4-5",
         summaryCacheEnabled: true,
         systemPrompt: "A"
       },
       {
+        provider: "anthropic",
         openaiModel: "gpt-5-nano",
         openaiReasoningEffort: "minimal",
         openaiVerbosity: "low",
+        anthropicModel: "claude-haiku-4-5",
         summaryCacheEnabled: true,
         systemPrompt: "A"
       }
@@ -112,9 +124,11 @@ test("buildSummaryCacheKeyForPayload is stable and changes when settings change"
     articleText: "Body text"
   };
   const settings = normalizeSettings({
+    provider: "anthropic",
     openaiModel: "gpt-4.1-mini",
     openaiReasoningEffort: "minimal",
     openaiVerbosity: "low",
+    anthropicModel: "claude-haiku-4-5",
     summaryCacheEnabled: true,
     systemPrompt: "Return plain text."
   });
@@ -123,7 +137,7 @@ test("buildSummaryCacheKeyForPayload is stable and changes when settings change"
   const keyB = await buildSummaryCacheKeyForPayload(payload, settings);
   const keyC = await buildSummaryCacheKeyForPayload(payload, {
     ...settings,
-    openaiVerbosity: "high"
+    anthropicModel: "claude-sonnet-4-6"
   });
 
   assert.equal(keyA, keyB);
@@ -139,7 +153,7 @@ test("cache helpers respect TTL, update access time, and prune oldest entries", 
     summaryText: "Summary A",
     contentSourceLabel: "Full source page",
     sourceWarning: ""
-  }, 36, now);
+  }, 7, now);
 
   const freshEntry = getCachedSummaryFromCache(cache, "fresh", now + 1000);
   assert.equal(freshEntry.summaryText, "Summary A");

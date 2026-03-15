@@ -1,4 +1,5 @@
 import {
+  ANTHROPIC_MAX_OUTPUT_TOKENS,
   DEFAULT_SETTINGS,
   FEEDBIN_STATE_STORAGE_KEY,
   SECRETS_STORAGE_KEY,
@@ -6,16 +7,16 @@ import {
   SETTINGS_STORAGE_KEY,
   SOURCE_FETCH_TIMEOUT_MS,
   SUMMARY_CACHE_STORAGE_KEY,
-  SUMMARY_CACHE_TTL_HOURS
+  SUMMARY_CACHE_TTL_DAYS
 } from "../shared/defaults.js";
 import {
   buildLegacySettings,
   buildSummaryCacheKeyForPayload,
   buildSummaryPrompt,
   didContentInvalidationChange,
+  getActiveProviderCacheConfig,
   getCachedSummaryFromCache,
   normalizeArticleText,
-  normalizeChoice,
   normalizeFeedbinState,
   normalizeSettings,
   normalizeSourceUrl,
@@ -30,15 +31,18 @@ import {
   normalizeIncomingMessage
 } from "./message-router.js";
 import {
+  summarizeWithAnthropic
+} from "./anthropic-client.js";
+import {
   summarizeWithOpenAI
 } from "./openai-client.js";
 import {
-  clearOpenAIKey,
-  getOpenAIKey,
-  getSecretStatus,
+  clearProviderApiKey,
+  getAllSecretStatuses,
+  getProviderApiKey,
   initializeSecretManager,
   primeSecretCache,
-  saveOpenAIKey
+  saveProviderApiKey
 } from "./secret-manager.js";
 import {
   createTimeoutSignal,
@@ -82,12 +86,12 @@ async function handleIncomingMessage(message, sender) {
       return buildOptionsState();
     case "updateOptionsSettings":
       return handleUpdateOptionsSettings(request.payload);
-    case "saveOpenAIKey":
-      return handleSaveOpenAIKey(request.payload);
-    case "clearOpenAIKey":
-      return handleClearOpenAIKey();
-    case "testOpenAIConnection":
-      return handleTestOpenAIConnection();
+    case "saveProviderKey":
+      return handleSaveProviderKey(request.payload);
+    case "clearProviderKey":
+      return handleClearProviderKey(request.payload);
+    case "testProviderConnection":
+      return handleTestProviderConnection(request.payload);
     case "getFeedbinState":
       return getFeedbinState();
     case "setFeedSummaryPreference":
@@ -116,11 +120,19 @@ async function initializeExtensionState() {
 
 async function buildOptionsState() {
   const settings = await getUserSettings();
-  const secretStatus = await getSecretStatus();
+  const keyStatuses = await getAllSecretStatuses();
 
   return {
     settings,
-    keyStatus: secretStatus
+    keyStatuses
+  };
+}
+
+async function getProviderKeyStatus(provider) {
+  const keyStatuses = await getAllSecretStatuses();
+  return keyStatuses[provider] || {
+    hasKey: false,
+    maskedPreview: ""
   };
 }
 
@@ -151,24 +163,29 @@ async function handleUpdateOptionsSettings(payload) {
   };
 }
 
-async function handleSaveOpenAIKey(payload) {
-  await saveOpenAIKey(payload.openaiApiKey);
+async function handleSaveProviderKey(payload) {
+  await saveProviderApiKey(payload.provider, payload.apiKey);
   return {
-    keyStatus: await getSecretStatus()
+    provider: payload.provider,
+    keyStatus: await getProviderKeyStatus(payload.provider)
   };
 }
 
-async function handleClearOpenAIKey() {
-  await clearOpenAIKey();
+async function handleClearProviderKey(payload) {
+  await clearProviderApiKey(payload.provider);
   return {
-    keyStatus: await getSecretStatus()
+    provider: payload.provider,
+    keyStatus: await getProviderKeyStatus(payload.provider)
   };
 }
 
-async function handleTestOpenAIConnection() {
+async function handleTestProviderConnection(payload) {
   const settings = await getUserSettings();
-  const openAIConfig = await getOpenAIConfig(settings);
-  const summaryText = await summarizeWithOpenAI(openAIConfig, {
+  const providerConfig = await getSelectedProviderConfig({
+    ...settings,
+    provider: payload.provider
+  });
+  const summaryText = await summarizeWithProvider(providerConfig, {
     systemPrompt: settings.systemPrompt,
     prompt: [
       "Title: Extension test",
@@ -179,9 +196,13 @@ async function handleTestOpenAIConnection() {
     ].join("\n")
   });
 
+  return buildProviderResult(providerConfig, summaryText);
+}
+
+function buildProviderResult(providerConfig, summaryText) {
   return {
-    provider: "openai",
-    model: openAIConfig.model,
+    provider: providerConfig.provider,
+    model: providerConfig.model,
     summaryText
   };
 }
@@ -364,7 +385,7 @@ async function ensureStoredSettings() {
 }
 
 async function migrateLegacyStorage() {
-  const legacyKeys = ["openaiApiKey", ...SETTINGS_KEYS, "summaryFeedPreferences"];
+  const legacyKeys = ["openaiApiKey", "anthropicApiKey", ...SETTINGS_KEYS, "summaryFeedPreferences"];
   const stored = await chrome.storage.local.get([
     SETTINGS_STORAGE_KEY,
     FEEDBIN_STATE_STORAGE_KEY,
@@ -377,14 +398,16 @@ async function migrateLegacyStorage() {
     summaryFeedPreferences: stored.summaryFeedPreferences || {}
   };
   const nextSecrets = stored[SECRETS_STORAGE_KEY] || {
-    openaiApiKey: normalizeString(stored.openaiApiKey, "", 400)
+    openaiApiKey: normalizeString(stored.openaiApiKey, "", 400),
+    anthropicApiKey: normalizeString(stored.anthropicApiKey, "", 400)
   };
 
   await chrome.storage.local.set({
     [SETTINGS_STORAGE_KEY]: normalizeSettings(nextSettings),
     [FEEDBIN_STATE_STORAGE_KEY]: normalizeFeedbinState(nextFeedbinState),
     [SECRETS_STORAGE_KEY]: {
-      openaiApiKey: String(nextSecrets.openaiApiKey || "").trim()
+      openaiApiKey: String(nextSecrets.openaiApiKey || "").trim(),
+      anthropicApiKey: String(nextSecrets.anthropicApiKey || "").trim()
     }
   });
 
@@ -411,9 +434,10 @@ async function runSummaryPipeline(payload, settings, options = {}) {
   if (cacheKey) {
     const cachedSummary = await getCachedSummary(cacheKey);
     if (cachedSummary) {
+      const activeProviderConfig = getActiveProviderCacheConfig(settings);
       return {
-        provider: "openai",
-        model: settings.openaiModel,
+        provider: settings.provider || DEFAULT_SETTINGS.provider,
+        model: activeProviderConfig.model,
         summaryText: cachedSummary.summaryText,
         contentSourceLabel: cachedSummary.contentSourceLabel || "Cached summary",
         sourceWarning: cachedSummary.sourceWarning || "",
@@ -422,7 +446,7 @@ async function runSummaryPipeline(payload, settings, options = {}) {
     }
   }
 
-  const openAIConfig = await getOpenAIConfig(settings);
+  const providerConfig = await getSelectedProviderConfig(settings);
   throwIfAborted(signal);
 
   const sourceMaterial = await getSourceMaterial(payload, signal);
@@ -431,8 +455,8 @@ async function runSummaryPipeline(payload, settings, options = {}) {
     throw new Error("No article text was available to summarize.");
   }
 
-  const summaryText = await summarizeWithOpenAI(
-    openAIConfig,
+  const summaryText = await summarizeWithProvider(
+    providerConfig,
     {
       systemPrompt: settings.systemPrompt,
       prompt: buildSummaryPrompt({
@@ -449,12 +473,12 @@ async function runSummaryPipeline(payload, settings, options = {}) {
       summaryText,
       contentSourceLabel: sourceMaterial.contentSourceLabel,
       sourceWarning: sourceMaterial.sourceWarning || ""
-    }, SUMMARY_CACHE_TTL_HOURS);
+    }, SUMMARY_CACHE_TTL_DAYS);
   }
 
   return {
-    provider: "openai",
-    model: openAIConfig.model,
+    provider: providerConfig.provider,
+    model: providerConfig.model,
     summaryText,
     contentSourceLabel: sourceMaterial.contentSourceLabel,
     sourceWarning: sourceMaterial.sourceWarning || "",
@@ -462,18 +486,51 @@ async function runSummaryPipeline(payload, settings, options = {}) {
   };
 }
 
+async function getSelectedProviderConfig(settings) {
+  return settings.provider === "anthropic"
+    ? getAnthropicConfig(settings)
+    : getOpenAIConfig(settings);
+}
+
 async function getOpenAIConfig(settings) {
-  const apiKey = await getOpenAIKey();
+  const apiKey = await getProviderApiKey("openai");
   if (!apiKey) {
     throw new Error("No OpenAI API key is configured. Add it in the extension options.");
   }
 
   return {
+    provider: "openai",
     apiKey,
-    model: settings.openaiModel || DEFAULT_SETTINGS.openaiModel,
-    reasoningEffort: normalizeChoice(settings.openaiReasoningEffort, ["", "minimal", "low", "medium", "high"], ""),
-    verbosity: normalizeChoice(settings.openaiVerbosity, ["", "low", "medium", "high"], "")
+    ...getActiveProviderCacheConfig({
+      ...settings,
+      provider: "openai"
+    })
   };
+}
+
+async function getAnthropicConfig(settings) {
+  const apiKey = await getProviderApiKey("anthropic");
+  if (!apiKey) {
+    throw new Error("No Anthropic API key is configured. Add it in the extension options.");
+  }
+
+  return {
+    provider: "anthropic",
+    apiKey,
+    maxOutputTokens: ANTHROPIC_MAX_OUTPUT_TOKENS,
+    ...getActiveProviderCacheConfig({
+      ...settings,
+      provider: "anthropic"
+    })
+  };
+}
+
+async function summarizeWithProvider(providerConfig, input, signal) {
+  if (providerConfig.provider === "anthropic") {
+    return summarizeWithAnthropic(providerConfig, input, signal);
+  }
+
+  return summarizeWithOpenAI(providerConfig, input, signal);
 }
 
 async function getSourceMaterial(payload, signal) {
@@ -638,9 +695,9 @@ async function getCachedSummary(cacheKey) {
   return entry;
 }
 
-async function storeCachedSummary(cacheKey, summaryPayload, ttlHours) {
+async function storeCachedSummary(cacheKey, summaryPayload, ttlDays) {
   const cache = await readSummaryCache();
-  storeCachedSummaryInCache(cache, cacheKey, summaryPayload, ttlHours);
+  storeCachedSummaryInCache(cache, cacheKey, summaryPayload, ttlDays);
   await writeSummaryCache(cache);
 }
 

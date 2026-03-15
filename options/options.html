@@ -15,75 +15,128 @@
       <section class="panel">
         <form id="settings-form" class="settings-form">
           <section class="settings-group">
-            <h2>OpenAI</h2>
+            <h2>Provider</h2>
 
-            <label class="field">
-              <span>API key</span>
-              <input type="password" name="openaiApiKey" id="openaiApiKey" autocomplete="off" placeholder="sk-...">
-              <small class="hint">Stored locally inside the extension. The saved key is never shown back in full, and this remains less secure than using a backend.</small>
-            </label>
+            <div class="provider-grid">
+              <section class="provider-card" data-provider-card="openai">
+                <header class="provider-card-header">
+                  <div>
+                    <h3>OpenAI</h3>
+                  </div>
+                  <label class="provider-pill provider-card-pill">
+                    <input type="radio" name="provider" value="openai">
+                    <span data-provider-label="openai">Active</span>
+                  </label>
+                </header>
 
-            <div class="actions key-actions">
-              <button type="button" id="save-key-button" class="secondary">Save key</button>
-              <button type="button" id="clear-key-button" class="secondary danger">Clear key</button>
-              <button type="button" id="test-button" class="secondary">Test API</button>
+                <label class="field">
+                  <span>API Key</span>
+                  <input type="password" name="openaiApiKey" id="openaiApiKey" autocomplete="off" placeholder="sk-...">
+                  <small class="hint">Stored locally inside the extension. The saved key is never shown back in full.</small>
+                  <span id="openai-key-status" class="status provider-key-status" role="status" aria-live="polite"></span>
+                </label>
+
+                <div class="actions key-actions">
+                  <button type="button" class="secondary" data-provider="openai" data-provider-action="save-key">Save Key</button>
+                  <button type="button" class="secondary danger" data-provider="openai" data-provider-action="clear-key">Clear Key</button>
+                  <button type="button" class="secondary" data-provider="openai" data-provider-action="test">Test API</button>
+                  <span id="openai-test-indicator" class="test-indicator" aria-live="polite"></span>
+                </div>
+
+                <label class="field">
+                  <span>Model</span>
+                  <select name="openaiModel" id="openaiModel">
+                    <option value="gpt-5-nano">GPT-5 Nano</option>
+                    <option value="gpt-5-mini">GPT-5 Mini</option>
+                    <option value="gpt-5">GPT-5</option>
+                  </select>
+                </label>
+
+                <div class="grid-two">
+                  <label class="field">
+                    <span>Reasoning Effort</span>
+                    <select name="openaiReasoningEffort" id="openaiReasoningEffort">
+                      <option value="">Model Default</option>
+                      <option value="minimal">Minimal</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                    <small class="hint">Mostly relevant for GPT-5 reasoning models.</small>
+                  </label>
+
+                  <label class="field">
+                    <span>Verbosity</span>
+                    <select name="openaiVerbosity" id="openaiVerbosity">
+                      <option value="">Model Default</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                    <small class="hint">Lower verbosity usually shortens responses.</small>
+                  </label>
+                </div>
+              </section>
+
+              <section class="provider-card" data-provider-card="anthropic">
+                <header class="provider-card-header">
+                  <div>
+                    <h3>Anthropic</h3>
+                  </div>
+                  <label class="provider-pill provider-card-pill">
+                    <input type="radio" name="provider" value="anthropic">
+                    <span data-provider-label="anthropic">Select</span>
+                  </label>
+                </header>
+
+                <label class="field">
+                  <span>API Key</span>
+                  <input type="password" name="anthropicApiKey" id="anthropicApiKey" autocomplete="off" placeholder="sk-ant-...">
+                  <small class="hint">Stored locally inside the extension. The saved key is never shown back in full.</small>
+                  <span id="anthropic-key-status" class="status provider-key-status" role="status" aria-live="polite"></span>
+                </label>
+
+                <div class="actions key-actions">
+                  <button type="button" class="secondary" data-provider="anthropic" data-provider-action="save-key">Save Key</button>
+                  <button type="button" class="secondary danger" data-provider="anthropic" data-provider-action="clear-key">Clear Key</button>
+                  <button type="button" class="secondary" data-provider="anthropic" data-provider-action="test">Test API</button>
+                  <span id="anthropic-test-indicator" class="test-indicator" aria-live="polite"></span>
+                </div>
+
+                <label class="field">
+                  <span>Model</span>
+                  <select name="anthropicModel" id="anthropicModel">
+                    <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
+                    <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+                  </select>
+                </label>
+              </section>
             </div>
-            <span id="key-status" class="status" role="status" aria-live="polite"></span>
+          </section>
 
+          <section class="settings-group">
+            <h2>Instructions</h2>
             <label class="field">
-              <span>Model</span>
-              <input type="text" name="openaiModel" id="openaiModel" autocomplete="off" placeholder="gpt-4.1-mini">
+              <textarea name="systemPrompt" id="systemPrompt" rows="6"></textarea>
             </label>
+          </section>
 
-            <div class="grid-two">
-              <label class="field">
-                <span>Reasoning effort</span>
-                <select name="openaiReasoningEffort" id="openaiReasoningEffort">
-                  <option value="">Model default</option>
-                  <option value="minimal">Minimal</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-                <small class="hint">Primarily relevant for GPT-5 reasoning models.</small>
-              </label>
-
-              <label class="field">
-                <span>Verbosity</span>
-                <select name="openaiVerbosity" id="openaiVerbosity">
-                  <option value="">Model default</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-                <small class="hint">Lower verbosity usually shortens responses.</small>
-              </label>
-            </div>
-
+          <section class="settings-group">
+            <h2>Extension Settings</h2>
             <label class="field checkbox-field">
               <span class="checkbox-row">
                 <input type="checkbox" name="summaryCacheEnabled" id="summaryCacheEnabled">
-                <span>Enable summary cache</span>
+                <span>Cache Summaries</span>
               </span>
-              <small class="hint">When enabled, matching summaries can be reused locally for about 36 hours.</small>
+              <small class="hint">When enabled, summaries are reused for 7 days.</small>
             </label>
 
             <label class="field checkbox-field">
               <span class="checkbox-row">
                 <input type="checkbox" name="prefetchDebugVisualizationEnabled" id="prefetchDebugVisualizationEnabled">
-                <span>Show prefetch debug indicators</span>
+                <span>Show Summary Indicators</span>
               </span>
-              <small class="hint">Adds tiny feed/article dots to show prefetch eligibility, active fetches, and cached summaries.</small>
-            </label>
-          </section>
-
-          <section class="settings-group">
-            <h2>Summarization</h2>
-
-            <label class="field">
-              <span>Summarization instructions</span>
-              <textarea name="systemPrompt" id="systemPrompt" rows="6"></textarea>
-              <small class="hint">These shape the summary style and priorities. The article request already includes a built-in “Summarize this article” task line.</small>
+              <small class="hint">When enabled, feeds and articles with summaries are badged.</small>
             </label>
           </section>
 

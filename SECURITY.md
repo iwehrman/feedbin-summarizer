@@ -2,21 +2,21 @@
 
 ## Threat Model
 
-This extension intentionally accepts a user-supplied OpenAI API key and calls OpenAI directly from the browser extension. That is less secure than using a backend. The goal of this design is to minimize exposure of the key inside the extension, not to make a client-side key equivalent to a server-side secret.
+This extension intentionally accepts user-supplied OpenAI and Anthropic API keys and calls those APIs directly from the browser extension. That is less secure than using a backend. The goal of this design is to minimize exposure of keys inside the extension, not to make a client-side key equivalent to a server-side secret.
 
 ## Current Protections
 
 - Manifest V3 only.
-- The service worker is the only component that reads or uses the saved OpenAI API key.
-- The options page is write-only for the key. It can submit a new key or clear the saved key, but it does not read the full stored value back.
+- The service worker is the only component that reads or uses saved provider API keys.
+- The options page is write-only for keys. It can submit a new key or clear a saved key, but it does not read the full stored value back.
 - Content scripts are treated as untrusted. They never receive the key and never construct Authorization headers.
 - `chrome.storage.local` and `chrome.storage.session` are set to `TRUSTED_CONTEXTS` so content scripts cannot read extension storage directly.
 - The persisted key lives only in `chrome.storage.local` under `secrets`.
 - The active key is mirrored into `chrome.storage.session` and worker memory for active use.
-- Only the service worker imports the OpenAI client and constructs `Authorization: Bearer ...` headers.
+- Only the service worker imports provider API clients and constructs authorization headers.
 - The message router only accepts explicit message types and rejects unknown message types, arbitrary fetch requests, and any attempt to request raw credential material.
 - API errors are sanitized before being returned to the UI.
-- Request timeouts and abort handling are enabled for source-page fetches and OpenAI requests.
+- Request timeouts and abort handling are enabled for source-page fetches and provider API requests.
 
 ## Storage Layout
 
@@ -28,16 +28,16 @@ This extension intentionally accepts a user-supplied OpenAI API key and calls Op
 - `chrome.storage.session`
   - `sessionSecrets`
 - service worker memory
-  - active in-memory copy of `openaiApiKey`
+  - active in-memory copies of `openaiApiKey` and `anthropicApiKey`
 
 ## Message Boundaries
 
 - Options page -> service worker
   - `getOptionsState`
   - `updateOptionsSettings`
-  - `saveOpenAIKey`
-  - `clearOpenAIKey`
-  - `testOpenAIConnection`
+  - `saveProviderKey`
+  - `clearProviderKey`
+  - `testProviderConnection`
 - Content script -> service worker
   - `getFeedbinState`
   - `setFeedSummaryPreference`
@@ -60,6 +60,6 @@ These risks cannot be fully removed without moving the key to a backend:
 
 ## Operational Advice
 
-- Use a dedicated OpenAI project key with tight spend limits.
+- Use dedicated provider keys with tight spend limits.
 - Rotate the key if you ever suspect the browser profile or extension environment was exposed.
 - Clear the key from the options page when you are not using the extension for long periods.

@@ -1,6 +1,6 @@
 # Feedbin Summarizer
 
-Feedbin Summarizer is a Chrome extension for people who read in Feedbin and want a faster way to understand what an article is about. It adds a `Summary` action to Feedbin's article toolbar and replaces the article body with a concise OpenAI-generated summary using the same article styling already on the page.
+Feedbin Summarizer is a Chrome extension for people who read in Feedbin and want a faster way to understand what an article is about. It adds a `Summary` action to Feedbin's article toolbar and replaces the article body with a concise AI-generated summary using the same article styling already on the page.
 
 ## What It Does
 
@@ -27,23 +27,28 @@ If you leave summary mode enabled for a feed, future articles from that feed can
 3. Click `Load unpacked`
 4. Select this repository folder
 5. Open the extension's `Details` page and click `Extension options`
-6. Enter your OpenAI API key and click `Save key`
-7. Adjust the model and summarization settings if you want
-8. Use `Test API` to confirm the key works
-9. Open Feedbin and use the new `Summary` action
+6. Open the `Provider` section and choose your default provider
+7. Enter an OpenAI and/or Anthropic API key and click `Save key`
+8. Adjust the provider-specific model settings and shared summarization settings if you want
+9. Use `Test API` on the provider you plan to use
+10. Open Feedbin and use the new `Summary` action
 
 ## Settings
 
-- `API key`
-  Stores your OpenAI key locally in the extension.
-- `Model`
-  Chooses which OpenAI model is used for summaries.
+- `Provider`
+  Chooses whether summaries use OpenAI or Anthropic by default.
+- `OpenAI API key` / `Anthropic API key`
+  Stores the selected provider keys locally inside the extension.
+- `OpenAI model`
+  Defaults to `gpt-5-nano`, with `gpt-5-mini` and `gpt-5` as the other built-in choices.
 - `Reasoning effort`
-  Useful mainly for GPT-5-family models.
+  OpenAI-only. Useful mainly for GPT-5-family models.
 - `Verbosity`
-  Lets you bias toward shorter or fuller responses.
+  OpenAI-only. Lets you bias toward shorter or fuller responses.
+- `Anthropic model`
+  Defaults to `claude-haiku-4-5`, with `claude-sonnet-4-6` as the stronger alternative.
 - `Enable summary cache`
-  Reuses matching summaries locally for about 36 hours.
+  Reuses matching summaries locally for 7 days.
 - `Show prefetch debug indicators`
   Adds tiny dots in Feedbin to show which feeds and articles are eligible, fetching, or ready.
 - `Summarization instructions`
@@ -51,7 +56,7 @@ If you leave summary mode enabled for a feed, future articles from that feed can
 
 ## Privacy And Security
 
-This extension uses a user-supplied OpenAI API key and calls OpenAI directly from the extension. The key is stored locally and is not backed by a separate server. That is convenient for a personal tool, but it is less secure than a backend-based design.
+This extension uses user-supplied OpenAI and/or Anthropic API keys and calls those APIs directly from the extension. Keys are stored locally and are not backed by a separate server. That is convenient for a personal tool, but it is less secure than a backend-based design.
 
 More detail is in [SECURITY.md](/Users/ian/Source/summarize-extension/SECURITY.md).
 

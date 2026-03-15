@@ -1,12 +1,39 @@
 import { DEFAULT_SETTINGS } from "../shared/defaults.js";
 
+const PROVIDERS = ["openai", "anthropic"];
+const PROVIDER_LABELS = {
+  openai: "OpenAI",
+  anthropic: "Anthropic"
+};
+const SETTINGS_DEFAULTS = {
+  provider: DEFAULT_SETTINGS.provider || "openai",
+  openaiModel: DEFAULT_SETTINGS.openaiModel || "gpt-5-nano",
+  openaiReasoningEffort: DEFAULT_SETTINGS.openaiReasoningEffort || "minimal",
+  openaiVerbosity: DEFAULT_SETTINGS.openaiVerbosity || "low",
+  anthropicModel: DEFAULT_SETTINGS.anthropicModel || "claude-haiku-4-5",
+  summaryCacheEnabled: DEFAULT_SETTINGS.summaryCacheEnabled ?? true,
+  prefetchDebugVisualizationEnabled: DEFAULT_SETTINGS.prefetchDebugVisualizationEnabled ?? false,
+  systemPrompt: DEFAULT_SETTINGS.systemPrompt || ""
+};
+
 const form = document.getElementById("settings-form");
 const status = document.getElementById("status");
-const keyStatus = document.getElementById("key-status");
-const testButton = document.getElementById("test-button");
-const saveKeyButton = document.getElementById("save-key-button");
-const clearKeyButton = document.getElementById("clear-key-button");
-const keyField = document.getElementById("openaiApiKey");
+const providerCards = new Map(
+  PROVIDERS.map(provider => [provider, document.querySelector(`[data-provider-card="${provider}"]`)])
+);
+const keyFields = new Map(
+  PROVIDERS.map(provider => [provider, document.getElementById(`${provider}ApiKey`)])
+);
+const keyStatuses = new Map(
+  PROVIDERS.map(provider => [provider, document.getElementById(`${provider}-key-status`)])
+);
+const testIndicators = new Map(
+  PROVIDERS.map(provider => [provider, document.getElementById(`${provider}-test-indicator`)])
+);
+const providerLabels = new Map(
+  PROVIDERS.map(provider => [provider, document.querySelector(`[data-provider-label="${provider}"]`)])
+);
+
 let saveTimer = null;
 
 init().catch(error => {
@@ -16,83 +43,123 @@ init().catch(error => {
 async function init() {
   const optionsState = await loadOptionsState();
   fillForm(optionsState.settings);
-  renderKeyStatus(optionsState.keyStatus);
-  form.addEventListener("input", scheduleAutoSave);
-  form.addEventListener("change", scheduleAutoSave);
-  testButton.addEventListener("click", handleTestConnection);
-  saveKeyButton.addEventListener("click", handleSaveKey);
-  clearKeyButton.addEventListener("click", handleClearKey);
-}
+  renderAllKeyStatuses(optionsState.keyStatuses);
+  syncProviderUi();
 
-async function handleSaveKey(event) {
-  event.preventDefault();
-  try {
-    await saveKeyFromField();
-  } catch (error) {
-    setKeyStatus(error.message || String(error), "error");
+  form.addEventListener("input", handleFormInteraction);
+  form.addEventListener("change", handleFormInteraction);
+
+  for (const button of document.querySelectorAll("[data-provider-action]")) {
+    button.addEventListener("click", handleProviderAction);
   }
 }
 
-async function saveKeyFromField() {
-  const nextKey = String(keyField.value || "").trim();
-  if (!nextKey) {
-    throw new Error("Enter the full key to save it.");
-  }
-
-  const response = await sendMessage({
-    type: "saveOpenAIKey",
-    payload: {
-      openaiApiKey: nextKey
-    }
-  });
-
-  keyField.value = "";
-  renderKeyStatus(response.result.keyStatus);
-  setStatus("Key saved.", "success");
-}
-
-async function handleClearKey(event) {
-  event.preventDefault();
-
-  try {
-    const response = await sendMessage({
-      type: "clearOpenAIKey"
-    });
-
-    keyField.value = "";
-    renderKeyStatus(response.result.keyStatus);
-    setStatus("Key cleared.", "success");
-  } catch (error) {
-    setKeyStatus(error.message || String(error), "error");
-  }
-}
-
-async function handleTestConnection(event) {
-  event.preventDefault();
-  try {
-    flushPendingSave();
-    await saveNonSecretSettings();
-    if (String(keyField.value || "").trim()) {
-      await saveKeyFromField();
-    }
-
-    setStatus("Testing API...");
-
-    const response = await sendMessage({
-      type: "testOpenAIConnection"
-    });
-
-    setStatus(`API is working. Sample response: ${truncate(response.result.summaryText, 120)}`, "success");
-  } catch (error) {
-    setStatus(error.message || String(error), "error");
-  }
-}
-
-function scheduleAutoSave(event) {
+function handleFormInteraction(event) {
   if (eventTargetsSecretField(event)) {
     return;
   }
 
+  clearAllTestIndicators();
+  syncProviderUi();
+  scheduleAutoSave();
+}
+
+async function handleProviderAction(event) {
+  event.preventDefault();
+  const button = event.currentTarget;
+  const provider = normalizeProvider(button?.dataset?.provider);
+  const action = String(button?.dataset?.providerAction || "");
+  if (!provider || !action) {
+    return;
+  }
+
+  try {
+    switch (action) {
+      case "save-key":
+        await saveKeyFromField(provider);
+        break;
+      case "clear-key":
+        await clearProviderKey(provider);
+        break;
+      case "test":
+        await testProviderConnection(provider);
+        break;
+      default:
+        break;
+    }
+  } catch (error) {
+    setTestIndicator(provider, "error");
+    setProviderKeyStatus(provider, error.message || String(error), "error");
+  }
+}
+
+async function saveKeyFromField(provider) {
+  const field = keyFields.get(provider);
+  const nextKey = String(field?.value || "").trim();
+  if (!nextKey) {
+    throw new Error(`Enter the full ${PROVIDER_LABELS[provider]} API key to save it.`);
+  }
+
+  const response = await sendMessage({
+    type: "saveProviderKey",
+    payload: {
+      provider,
+      apiKey: nextKey
+    }
+  });
+
+  field.value = "";
+  setTestIndicator(provider, "");
+  renderKeyStatus(provider, response.result.keyStatus);
+  setStatus(`${PROVIDER_LABELS[provider]} key saved.`, "success");
+}
+
+async function clearProviderKey(provider) {
+  const response = await sendMessage({
+    type: "clearProviderKey",
+    payload: {
+      provider
+    }
+  });
+
+  const field = keyFields.get(provider);
+  if (field) {
+    field.value = "";
+  }
+
+  setTestIndicator(provider, "");
+  renderKeyStatus(provider, response.result.keyStatus);
+  setStatus(`${PROVIDER_LABELS[provider]} key cleared.`, "success");
+}
+
+async function testProviderConnection(provider) {
+  flushPendingSave();
+  await saveNonSecretSettings();
+
+  const field = keyFields.get(provider);
+  if (String(field?.value || "").trim()) {
+    await saveKeyFromField(provider);
+  }
+
+  setTestIndicator(provider, "pending");
+  try {
+    await sendMessage({
+      type: "testProviderConnection",
+      payload: {
+        provider
+      }
+    });
+  } catch (error) {
+    setTestIndicator(provider, "error");
+    throw error;
+  }
+
+  setTestIndicator(provider, "success");
+  renderKeyStatus(provider, { hasKey: true });
+  setStatus("");
+}
+
+function scheduleAutoSave() {
   window.clearTimeout(saveTimer);
   setStatus("Saving...");
   saveTimer = window.setTimeout(() => {
@@ -109,17 +176,18 @@ async function handleAutoSave() {
 }
 
 function flushPendingSave() {
-  if (saveTimer) {
-    window.clearTimeout(saveTimer);
-    saveTimer = null;
+  if (!saveTimer) {
+    return;
   }
+
+  window.clearTimeout(saveTimer);
+  saveTimer = null;
 }
 
 async function saveNonSecretSettings() {
-  const settings = readNonSecretSettings();
   const response = await sendMessage({
     type: "updateOptionsSettings",
-    payload: settings
+    payload: readNonSecretSettings()
   });
 
   return response.result.settings;
@@ -128,66 +196,116 @@ async function saveNonSecretSettings() {
 function readNonSecretSettings() {
   const data = new FormData(form);
   return {
-    openaiModel: String(data.get("openaiModel") || DEFAULT_SETTINGS.openaiModel).trim(),
+    provider: normalizeProvider(data.get("provider")) || SETTINGS_DEFAULTS.provider,
+    openaiModel: String(data.get("openaiModel") || SETTINGS_DEFAULTS.openaiModel).trim(),
     openaiReasoningEffort: String(data.get("openaiReasoningEffort") || "").trim(),
     openaiVerbosity: String(data.get("openaiVerbosity") || "").trim(),
+    anthropicModel: String(data.get("anthropicModel") || SETTINGS_DEFAULTS.anthropicModel).trim(),
     summaryCacheEnabled: data.get("summaryCacheEnabled") === "on",
     prefetchDebugVisualizationEnabled: data.get("prefetchDebugVisualizationEnabled") === "on",
-    systemPrompt: String(data.get("systemPrompt") || DEFAULT_SETTINGS.systemPrompt).trim()
+    systemPrompt: String(data.get("systemPrompt") || SETTINGS_DEFAULTS.systemPrompt).trim()
   };
 }
 
 function fillForm(settings) {
-  for (const [key, value] of Object.entries(settings)) {
-    if (key === "openaiApiKey") {
-      continue;
-    }
+  setRadioValue("provider", normalizeProvider(settings.provider) || SETTINGS_DEFAULTS.provider);
+  setFieldValue("openaiModel", settings.openaiModel ?? SETTINGS_DEFAULTS.openaiModel);
+  setFieldValue("openaiReasoningEffort", settings.openaiReasoningEffort ?? SETTINGS_DEFAULTS.openaiReasoningEffort);
+  setFieldValue("openaiVerbosity", settings.openaiVerbosity ?? SETTINGS_DEFAULTS.openaiVerbosity);
+  setFieldValue("anthropicModel", settings.anthropicModel ?? SETTINGS_DEFAULTS.anthropicModel);
+  setCheckboxValue("summaryCacheEnabled", settings.summaryCacheEnabled ?? SETTINGS_DEFAULTS.summaryCacheEnabled);
+  setCheckboxValue(
+    "prefetchDebugVisualizationEnabled",
+    settings.prefetchDebugVisualizationEnabled ?? SETTINGS_DEFAULTS.prefetchDebugVisualizationEnabled
+  );
+  setFieldValue("systemPrompt", settings.systemPrompt ?? SETTINGS_DEFAULTS.systemPrompt);
+}
 
-    const field = form.elements.namedItem(key);
-    if (field) {
-      if (field instanceof HTMLInputElement && field.type === "checkbox") {
-        field.checked = Boolean(value);
-        continue;
-      }
-
-      field.value = value;
-    }
+function renderAllKeyStatuses(nextStatuses) {
+  for (const provider of PROVIDERS) {
+    renderKeyStatus(provider, nextStatuses?.[provider]);
   }
 }
 
-function renderKeyStatus(keyState, overrideMessage = "", tone = "") {
+function renderKeyStatus(provider, keyState, overrideMessage = "", tone = "") {
   if (overrideMessage) {
-    setKeyStatus(overrideMessage, tone);
+    setProviderKeyStatus(provider, overrideMessage, tone);
     return;
   }
 
-  if (keyState?.hasOpenAIKey) {
-    setKeyStatus(`Key saved ${keyState.maskedPreview || ""}`.trim(), "success");
+  if (keyState?.hasKey) {
+    setProviderKeyStatus(provider, "Saved locally.", "success");
     return;
   }
 
-  setKeyStatus("No key configured.");
+  setProviderKeyStatus(provider, "No key saved.");
 }
 
-function setStatus(message, tone = "") {
-  status.textContent = message;
-  status.classList.remove("is-error", "is-success");
+function setProviderKeyStatus(provider, message, tone = "") {
+  const element = keyStatuses.get(provider);
+  if (!element) {
+    return;
+  }
+
+  element.textContent = message;
+  element.classList.remove("is-error", "is-success");
   if (tone === "error") {
-    status.classList.add("is-error");
+    element.classList.add("is-error");
   }
   if (tone === "success") {
-    status.classList.add("is-success");
+    element.classList.add("is-success");
   }
 }
 
-function setKeyStatus(message, tone = "") {
-  keyStatus.textContent = message;
-  keyStatus.classList.remove("is-error", "is-success");
-  if (tone === "error") {
-    keyStatus.classList.add("is-error");
+function setTestIndicator(provider, state) {
+  const indicator = testIndicators.get(provider);
+  if (!indicator) {
+    return;
   }
-  if (tone === "success") {
-    keyStatus.classList.add("is-success");
+
+  indicator.classList.remove("is-visible", "is-success", "is-error");
+  indicator.textContent = "";
+  indicator.removeAttribute("title");
+  indicator.removeAttribute("aria-label");
+
+  switch (state) {
+    case "pending":
+      indicator.classList.add("is-visible");
+      indicator.textContent = "...";
+      indicator.setAttribute("title", "Testing API");
+      indicator.setAttribute("aria-label", "Testing API");
+      break;
+    case "success":
+      indicator.classList.add("is-visible", "is-success");
+      indicator.textContent = "✓";
+      indicator.setAttribute("title", "API verified");
+      indicator.setAttribute("aria-label", "API verified");
+      break;
+    case "error":
+      indicator.classList.add("is-visible", "is-error");
+      indicator.textContent = "×";
+      indicator.setAttribute("title", "API test failed");
+      indicator.setAttribute("aria-label", "API test failed");
+      break;
+    default:
+      break;
+  }
+}
+
+function clearAllTestIndicators() {
+  for (const provider of PROVIDERS) {
+    setTestIndicator(provider, "");
+  }
+}
+
+function syncProviderUi() {
+  const activeProvider = getSelectedProvider();
+  for (const provider of PROVIDERS) {
+    providerCards.get(provider)?.classList.toggle("is-active", provider === activeProvider);
+    const label = providerLabels.get(provider);
+    if (label) {
+      label.textContent = provider === activeProvider ? "Active" : "Select";
+    }
   }
 }
 
@@ -198,14 +316,32 @@ async function loadOptionsState() {
 
   return {
     settings: {
-      ...DEFAULT_SETTINGS,
+      ...SETTINGS_DEFAULTS,
       ...response.result.settings
     },
-    keyStatus: response.result.keyStatus || {
-      hasOpenAIKey: false,
-      maskedPreview: ""
-    }
+    keyStatuses: normalizeKeyStatuses(response.result)
   };
+}
+
+function normalizeKeyStatuses(result) {
+  const statuses = {
+    openai: { hasKey: false, maskedPreview: "" },
+    anthropic: { hasKey: false, maskedPreview: "" }
+  };
+
+  if (result?.keyStatuses && typeof result.keyStatuses === "object") {
+    for (const provider of PROVIDERS) {
+      const nextStatus = result.keyStatuses[provider];
+      if (nextStatus) {
+        statuses[provider] = {
+          hasKey: Boolean(nextStatus.hasKey),
+          maskedPreview: String(nextStatus.maskedPreview || "")
+        };
+      }
+    }
+  }
+
+  return statuses;
 }
 
 function sendMessage(message) {
@@ -222,7 +358,7 @@ function sendMessage(message) {
       }
 
       if (!response.ok) {
-        reject(new Error(response.error || "The OpenAI test failed."));
+        reject(new Error(response.error || "The provider request failed."));
         return;
       }
 
@@ -231,14 +367,46 @@ function sendMessage(message) {
   });
 }
 
-function truncate(value, limit) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (text.length <= limit) {
-    return text;
+function setStatus(message, tone = "") {
+  status.textContent = message;
+  status.classList.remove("is-error", "is-success");
+  if (tone === "error") {
+    status.classList.add("is-error");
   }
-  return `${text.slice(0, limit - 3)}...`;
+  if (tone === "success") {
+    status.classList.add("is-success");
+  }
 }
 
 function eventTargetsSecretField(event) {
-  return Boolean(event?.target?.id === "openaiApiKey");
+  return Boolean(event?.target?.id && /ApiKey$/.test(event.target.id));
+}
+
+function getSelectedProvider() {
+  return normalizeProvider(new FormData(form).get("provider")) || SETTINGS_DEFAULTS.provider;
+}
+
+function setRadioValue(name, value) {
+  for (const radio of form.querySelectorAll(`input[type="radio"][name="${name}"]`)) {
+    radio.checked = radio.value === value;
+  }
+}
+
+function setFieldValue(name, value) {
+  const field = form.elements.namedItem(name);
+  if (field && "value" in field) {
+    field.value = String(value ?? "");
+  }
+}
+
+function setCheckboxValue(name, value) {
+  const field = form.elements.namedItem(name);
+  if (field instanceof HTMLInputElement) {
+    field.checked = Boolean(value);
+  }
+}
+
+function normalizeProvider(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return PROVIDERS.includes(normalized) ? normalized : "";
 }

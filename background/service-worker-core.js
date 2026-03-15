@@ -1,19 +1,21 @@
 import {
-  CONTENT_INVALIDATION_KEYS,
   DEFAULT_SETTINGS,
-  MAX_SUMMARY_CACHE_ENTRIES
+  MAX_SUMMARY_CACHE_ENTRIES,
+  PROVIDERS
 } from "../shared/defaults.js";
 
-const REASONING_EFFORT_VALUES = ["", "minimal", "low", "medium", "high"];
-const VERBOSITY_VALUES = ["", "low", "medium", "high"];
+export const OPENAI_REASONING_EFFORT_VALUES = ["", "minimal", "low", "medium", "high"];
+export const OPENAI_VERBOSITY_VALUES = ["", "low", "medium", "high"];
 const MIN_COMPLETE_VISIBLE_ARTICLE_CHARS = 1800;
 const MIN_COMPLETE_VISIBLE_ARTICLE_WORDS = 260;
 
 export function normalizeSettings(rawSettings) {
   return {
+    provider: normalizeChoice(rawSettings?.provider, PROVIDERS, DEFAULT_SETTINGS.provider),
     openaiModel: normalizeString(rawSettings?.openaiModel, DEFAULT_SETTINGS.openaiModel, 120),
-    openaiReasoningEffort: normalizeChoice(rawSettings?.openaiReasoningEffort, REASONING_EFFORT_VALUES, DEFAULT_SETTINGS.openaiReasoningEffort),
-    openaiVerbosity: normalizeChoice(rawSettings?.openaiVerbosity, VERBOSITY_VALUES, DEFAULT_SETTINGS.openaiVerbosity),
+    openaiReasoningEffort: normalizeChoice(rawSettings?.openaiReasoningEffort, OPENAI_REASONING_EFFORT_VALUES, DEFAULT_SETTINGS.openaiReasoningEffort),
+    openaiVerbosity: normalizeChoice(rawSettings?.openaiVerbosity, OPENAI_VERBOSITY_VALUES, DEFAULT_SETTINGS.openaiVerbosity),
+    anthropicModel: normalizeString(rawSettings?.anthropicModel, DEFAULT_SETTINGS.anthropicModel, 120),
     summaryCacheEnabled: typeof rawSettings?.summaryCacheEnabled === "boolean" ? rawSettings.summaryCacheEnabled : DEFAULT_SETTINGS.summaryCacheEnabled,
     prefetchDebugVisualizationEnabled: typeof rawSettings?.prefetchDebugVisualizationEnabled === "boolean"
       ? rawSettings.prefetchDebugVisualizationEnabled
@@ -48,13 +50,18 @@ export function buildLegacySettings(stored) {
 }
 
 export function didContentInvalidationChange(previousSettings, nextSettings) {
-  for (const key of CONTENT_INVALIDATION_KEYS) {
-    if (previousSettings[key] !== nextSettings[key]) {
-      return true;
-    }
+  if (
+    previousSettings.provider !== nextSettings.provider ||
+    previousSettings.summaryCacheEnabled !== nextSettings.summaryCacheEnabled ||
+    previousSettings.systemPrompt !== nextSettings.systemPrompt
+  ) {
+    return true;
   }
 
-  return false;
+  return !shallowEqual(
+    getActiveProviderCacheConfig(previousSettings),
+    getActiveProviderCacheConfig(nextSettings)
+  );
 }
 
 export function buildSummaryPrompt({ title, sourceUrl, articleText }) {
@@ -87,13 +94,28 @@ export function buildArticleCacheIdentity(payload) {
 }
 
 export async function buildSummaryCacheKeyForPayload(payload, settings) {
+  const provider = normalizeChoice(settings.provider, PROVIDERS, DEFAULT_SETTINGS.provider);
   return buildSummaryCacheKey({
     articleIdentity: buildArticleCacheIdentity(payload),
-    model: settings.openaiModel || DEFAULT_SETTINGS.openaiModel,
-    reasoningEffort: normalizeChoice(settings.openaiReasoningEffort, REASONING_EFFORT_VALUES, ""),
-    verbosity: normalizeChoice(settings.openaiVerbosity, VERBOSITY_VALUES, ""),
+    provider,
+    providerConfig: getActiveProviderCacheConfig(settings),
     systemPrompt: settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt
   });
+}
+
+export function getActiveProviderCacheConfig(settings) {
+  const provider = normalizeChoice(settings?.provider, PROVIDERS, DEFAULT_SETTINGS.provider);
+  if (provider === "anthropic") {
+    return {
+      model: normalizeString(settings?.anthropicModel, DEFAULT_SETTINGS.anthropicModel, 120)
+    };
+  }
+
+  return {
+    model: settings?.openaiModel || DEFAULT_SETTINGS.openaiModel,
+    reasoningEffort: normalizeChoice(settings?.openaiReasoningEffort, OPENAI_REASONING_EFFORT_VALUES, ""),
+    verbosity: normalizeChoice(settings?.openaiVerbosity, OPENAI_VERBOSITY_VALUES, "")
+  };
 }
 
 export async function buildSummaryCacheKey(parts) {
@@ -123,14 +145,14 @@ export function getCachedSummaryFromCache(cache, cacheKey, now = Date.now()) {
   return entry;
 }
 
-export function storeCachedSummaryInCache(cache, cacheKey, summaryPayload, ttlHours, now = Date.now()) {
+export function storeCachedSummaryInCache(cache, cacheKey, summaryPayload, ttlDays, now = Date.now()) {
   cache[cacheKey] = {
     summaryText: summaryPayload.summaryText,
     contentSourceLabel: summaryPayload.contentSourceLabel || "",
     sourceWarning: summaryPayload.sourceWarning || "",
     createdAt: now,
     lastAccessedAt: now,
-    expiresAt: now + ttlHours * 60 * 60 * 1000
+    expiresAt: now + ttlDays * 24 * 60 * 60 * 1000
   };
 
   pruneSummaryCache(cache, now);

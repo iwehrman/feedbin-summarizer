@@ -6,7 +6,7 @@ This file is for people or coding agents working on the repo. The README is inte
 
 - Chrome extension for `https://feedbin.com/*`
 - Adds a `Summary` toolbar action to Feedbin articles
-- Uses OpenAI to summarize either the visible article text or the fetched source page
+- Uses OpenAI or Anthropic to summarize either the visible article text or the fetched source page
 - Remembers summary mode per feed
 - Supports local summary caching and conservative prefetch
 
@@ -15,11 +15,13 @@ This file is for people or coding agents working on the repo. The README is inte
 - `content/feedbin.js`
   Feedbin-specific content script. Injects the toolbar button, toggles summaries in place, remembers per-feed preferences, manages prefetch, and renders optional debug dots.
 - `background/service-worker.js`
-  Background coordinator. Handles settings, cache lookups, source fetches, OpenAI requests, and runtime message routing.
+  Background coordinator. Handles settings, cache lookups, source fetches, provider requests, and runtime message routing.
 - `background/message-router.js`
   Validates and dispatches the small set of supported runtime messages.
 - `background/openai-client.js`
   OpenAI Responses API client. Only worker code should import or use this.
+- `background/anthropic-client.js`
+  Anthropic Messages API client. Only worker code should import or use this.
 - `background/secret-manager.js`
   Owns persisted/session secret handling and trusted-context storage setup.
 - `background/service-worker-core.js`
@@ -31,7 +33,7 @@ This file is for people or coding agents working on the repo. The README is inte
 
 ## Trust Boundaries
 
-- The service worker is the only code that persists or uses the OpenAI API key.
+- The service worker is the only code that persists or uses provider API keys.
 - Content scripts are treated as untrusted.
 - The options page is write-only for the key after save.
 - Authorization headers are created only in the service worker.
@@ -44,7 +46,7 @@ More detail is in [SECURITY.md](/Users/ian/Source/summarize-extension/SECURITY.m
 1. The content script detects the active Feedbin article and injects the `Summary` button.
 2. On click, it sends article metadata and text to the service worker.
 3. The worker decides whether to use cached output, visible article text, or fetched source-page text.
-4. The worker calls the OpenAI Responses API.
+4. The worker calls the selected provider API.
 5. The content script replaces the article body with the returned summary using Feedbin's existing article styling.
 
 ## Prefetch Behavior
@@ -68,16 +70,16 @@ More detail is in [SECURITY.md](/Users/ian/Source/summarize-extension/SECURITY.m
 - `chrome.storage.session`
   - `sessionSecrets`
 - service worker memory
-  - active in-memory copy of `openaiApiKey`
+  - active in-memory copies of provider API keys
 
 ## Runtime Messages
 
 Options page -> service worker
 - `getOptionsState`
 - `updateOptionsSettings`
-- `saveOpenAIKey`
-- `clearOpenAIKey`
-- `testOpenAIConnection`
+- `saveProviderKey`
+- `clearProviderKey`
+- `testProviderConnection`
 
 Content script -> service worker
 - `getFeedbinState`
@@ -112,4 +114,5 @@ The Husky pre-commit hook runs lint and tests automatically.
 
 - Keep `README.md` user-facing.
 - Put implementation details, workflows, and maintenance notes here instead of expanding the README.
+- UI headers, labels, and titles should use Title Case.
 - Avoid widening permissions casually, especially article host permissions and anything related to secrets.

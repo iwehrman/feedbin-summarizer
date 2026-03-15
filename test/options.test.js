@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { DEFAULT_SETTINGS } from "../shared/defaults.js";
 import { importFresh, waitFor, withJSDOM } from "../test-support/dom-test-helpers.js";
 
 const OPTIONS_HTML = `
@@ -8,11 +9,20 @@ const OPTIONS_HTML = `
 <html lang="en">
   <body>
     <form id="settings-form">
+      <input type="radio" name="provider" value="openai" checked>
+      <input type="radio" name="provider" value="anthropic">
+
+      <section data-provider-card="openai"></section>
       <input type="password" name="openaiApiKey" id="openaiApiKey">
-      <button type="button" id="save-key-button">Save key</button>
-      <button type="button" id="clear-key-button">Clear key</button>
-      <button type="button" id="test-button">Test API</button>
-      <input type="text" name="openaiModel" id="openaiModel">
+      <button type="button" data-provider-action="save-key" data-provider="openai">Save OpenAI key</button>
+      <button type="button" data-provider-action="clear-key" data-provider="openai">Clear OpenAI key</button>
+      <button type="button" data-provider-action="test" data-provider="openai">Test OpenAI</button>
+      <span id="openai-test-indicator"></span>
+      <select name="openaiModel" id="openaiModel">
+        <option value="gpt-5-nano">GPT-5 Nano</option>
+        <option value="gpt-5-mini">GPT-5 Mini</option>
+        <option value="gpt-5">GPT-5</option>
+      </select>
       <select name="openaiReasoningEffort" id="openaiReasoningEffort">
         <option value="">Model default</option>
         <option value="minimal">Minimal</option>
@@ -21,17 +31,30 @@ const OPTIONS_HTML = `
         <option value="">Model default</option>
         <option value="low">Low</option>
       </select>
+      <span id="openai-key-status"></span>
+
+      <section data-provider-card="anthropic"></section>
+      <input type="password" name="anthropicApiKey" id="anthropicApiKey">
+      <button type="button" data-provider-action="save-key" data-provider="anthropic">Save Anthropic key</button>
+      <button type="button" data-provider-action="clear-key" data-provider="anthropic">Clear Anthropic key</button>
+      <button type="button" data-provider-action="test" data-provider="anthropic">Test Anthropic</button>
+      <span id="anthropic-test-indicator"></span>
+      <select name="anthropicModel" id="anthropicModel">
+        <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
+        <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+      </select>
+      <span id="anthropic-key-status"></span>
+
       <input type="checkbox" name="summaryCacheEnabled" id="summaryCacheEnabled">
       <input type="checkbox" name="prefetchDebugVisualizationEnabled" id="prefetchDebugVisualizationEnabled">
       <textarea name="systemPrompt" id="systemPrompt"></textarea>
-      <span id="key-status"></span>
       <span id="status"></span>
     </form>
   </body>
 </html>
 `;
 
-test("options page never repopulates the saved API key", async () => {
+test("options page never repopulates saved provider keys", async () => {
   await withJSDOM(OPTIONS_HTML, async () => {
     const sentMessages = [];
     globalThis.chrome = {
@@ -43,16 +66,24 @@ test("options page never repopulates the saved API key", async () => {
               ok: true,
               result: {
                 settings: {
-                  openaiModel: "gpt-4.1-mini",
+                  provider: "anthropic",
+                  openaiModel: "gpt-5-nano",
                   openaiReasoningEffort: "minimal",
                   openaiVerbosity: "low",
+                  anthropicModel: "claude-haiku-4-5",
                   summaryCacheEnabled: true,
                   prefetchDebugVisualizationEnabled: true,
                   systemPrompt: "Return plain text."
                 },
-                keyStatus: {
-                  hasOpenAIKey: true,
-                  maskedPreview: "••••••••••••"
+                keyStatuses: {
+                  openai: {
+                    hasKey: true,
+                    maskedPreview: "••••••••••••"
+                  },
+                  anthropic: {
+                    hasKey: false,
+                    maskedPreview: ""
+                  }
                 }
               }
             });
@@ -65,15 +96,75 @@ test("options page never repopulates the saved API key", async () => {
     };
 
     await importFresh("options/options.js");
-    await waitFor(() => document.getElementById("key-status").textContent.includes("Key saved"));
+    await waitFor(() => document.getElementById("openai-key-status").textContent.includes("Saved locally."));
 
     assert.equal(document.getElementById("openaiApiKey").value, "");
-    assert.match(document.getElementById("key-status").textContent, /••••••••••••/);
+    assert.equal(document.getElementById("anthropicApiKey").value, "");
+    assert.equal(document.getElementById("openai-key-status").textContent, "Saved locally.");
+    assert.equal(document.getElementById("anthropic-key-status").textContent, "No key saved.");
+    assert.equal(document.querySelector('input[name="provider"][value="anthropic"]').checked, true);
     assert.equal(sentMessages[0].type, "getOptionsState");
   });
 });
 
-test("options page submits a freshly typed key and then clears the field", async () => {
+test("options page shows a local checkmark when provider API verification succeeds", async () => {
+  await withJSDOM(OPTIONS_HTML, async () => {
+    globalThis.chrome = {
+      runtime: {
+        sendMessage(message, callback) {
+          if (message.type === "getOptionsState") {
+            callback({
+              ok: true,
+              result: {
+                settings: {},
+                keyStatuses: {
+                  openai: { hasKey: true, maskedPreview: "••••••••••••" },
+                  anthropic: { hasKey: false, maskedPreview: "" }
+                }
+              }
+            });
+            return;
+          }
+
+          if (message.type === "updateOptionsSettings") {
+            callback({
+              ok: true,
+              result: {
+                settings: message.payload
+              }
+            });
+            return;
+          }
+
+          if (message.type === "testProviderConnection") {
+            callback({
+              ok: true,
+              result: {
+                provider: "openai",
+                model: "gpt-5-nano",
+                summaryText: "A short summary."
+              }
+            });
+            return;
+          }
+
+          callback({ ok: true, result: {} });
+        }
+      }
+    };
+
+    await importFresh("options/options.js");
+    document.querySelector('[data-provider-action="test"][data-provider="openai"]').click();
+
+    await waitFor(() => document.getElementById("openai-test-indicator").textContent === "✓");
+
+    assert.equal(document.getElementById("openai-key-status").textContent, "Saved locally.");
+    assert.equal(document.getElementById("openai-test-indicator").classList.contains("is-success"), true);
+    assert.equal(document.getElementById("status").textContent, "");
+  });
+});
+
+test("options page submits a freshly typed provider key and then clears the field", async () => {
   await withJSDOM(OPTIONS_HTML, async () => {
     const sentMessages = [];
     globalThis.chrome = {
@@ -85,21 +176,21 @@ test("options page submits a freshly typed key and then clears the field", async
               ok: true,
               result: {
                 settings: {},
-                keyStatus: {
-                  hasOpenAIKey: false,
-                  maskedPreview: ""
+                keyStatuses: {
+                  openai: { hasKey: false, maskedPreview: "" },
+                  anthropic: { hasKey: false, maskedPreview: "" }
                 }
               }
             });
             return;
           }
 
-          if (message.type === "saveOpenAIKey") {
+          if (message.type === "saveProviderKey") {
             callback({
               ok: true,
               result: {
                 keyStatus: {
-                  hasOpenAIKey: true,
+                  hasKey: true,
                   maskedPreview: "••••••••••••"
                 }
               }
@@ -113,14 +204,79 @@ test("options page submits a freshly typed key and then clears the field", async
     };
 
     await importFresh("options/options.js");
-    const keyField = document.getElementById("openaiApiKey");
-    keyField.value = "sk-test_1234567890";
-    document.getElementById("save-key-button").click();
+    const keyField = document.getElementById("anthropicApiKey");
+    keyField.value = "sk-ant-test_1234567890";
+    document.querySelector('[data-provider-action="save-key"][data-provider="anthropic"]').click();
 
-    await waitFor(() => sentMessages.some(message => message.type === "saveOpenAIKey"));
+    await waitFor(() => sentMessages.some(message => message.type === "saveProviderKey"));
 
-    const saveMessage = sentMessages.find(message => message.type === "saveOpenAIKey");
-    assert.equal(saveMessage.payload.openaiApiKey, "sk-test_1234567890");
+    const saveMessage = sentMessages.find(message => message.type === "saveProviderKey");
+    assert.equal(saveMessage.payload.provider, "anthropic");
+    assert.equal(saveMessage.payload.apiKey, "sk-ant-test_1234567890");
     assert.equal(keyField.value, "");
+  });
+});
+
+test("options page auto-saves provider-specific and shared settings", async () => {
+  await withJSDOM(OPTIONS_HTML, async () => {
+    const sentMessages = [];
+    globalThis.chrome = {
+      runtime: {
+        sendMessage(message, callback) {
+          sentMessages.push(message);
+
+          if (message.type === "getOptionsState") {
+            callback({
+              ok: true,
+              result: {
+                settings: {},
+                keyStatuses: {
+                  openai: { hasKey: false, maskedPreview: "" },
+                  anthropic: { hasKey: false, maskedPreview: "" }
+                }
+              }
+            });
+            return;
+          }
+
+          if (message.type === "updateOptionsSettings") {
+            callback({
+              ok: true,
+              result: {
+                settings: message.payload
+              }
+            });
+            return;
+          }
+
+          callback({ ok: true, result: {} });
+        }
+      }
+    };
+
+    await importFresh("options/options.js");
+
+    document.querySelector('input[name="provider"][value="anthropic"]').checked = true;
+    document.querySelector('input[name="provider"][value="anthropic"]').dispatchEvent(new Event("change", { bubbles: true }));
+    document.getElementById("anthropicModel").value = "claude-sonnet-4-6";
+    document.getElementById("anthropicModel").dispatchEvent(new Event("change", { bubbles: true }));
+    document.getElementById("summaryCacheEnabled").checked = false;
+    document.getElementById("summaryCacheEnabled").dispatchEvent(new Event("change", { bubbles: true }));
+    document.getElementById("systemPrompt").value = "Summarize clearly.";
+    document.getElementById("systemPrompt").dispatchEvent(new Event("input", { bubbles: true }));
+
+    await waitFor(() => sentMessages.some(message => message.type === "updateOptionsSettings"));
+
+    const updateMessage = sentMessages.findLast(message => message.type === "updateOptionsSettings");
+    assert.deepEqual(updateMessage.payload, {
+      provider: "anthropic",
+      openaiModel: DEFAULT_SETTINGS.openaiModel,
+      openaiReasoningEffort: DEFAULT_SETTINGS.openaiReasoningEffort,
+      openaiVerbosity: DEFAULT_SETTINGS.openaiVerbosity,
+      anthropicModel: "claude-sonnet-4-6",
+      summaryCacheEnabled: false,
+      prefetchDebugVisualizationEnabled: false,
+      systemPrompt: "Summarize clearly."
+    });
   });
 });

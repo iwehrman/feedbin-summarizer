@@ -25,9 +25,11 @@ test("options page can update settings without exposing secrets", () => {
     {
       type: "updateOptionsSettings",
       payload: {
+        provider: "anthropic",
         openaiModel: "gpt-5-nano",
         openaiReasoningEffort: "minimal",
         openaiVerbosity: "low",
+        anthropicModel: "claude-haiku-4-5",
         summaryCacheEnabled: false,
         prefetchDebugVisualizationEnabled: true,
         systemPrompt: "Return plain text."
@@ -38,12 +40,48 @@ test("options page can update settings without exposing secrets", () => {
 
   assert.equal(request.type, "updateOptionsSettings");
   assert.deepEqual(request.payload, {
+    provider: "anthropic",
     openaiModel: "gpt-5-nano",
     openaiReasoningEffort: "minimal",
     openaiVerbosity: "low",
+    anthropicModel: "claude-haiku-4-5",
     summaryCacheEnabled: false,
     prefetchDebugVisualizationEnabled: true,
     systemPrompt: "Return plain text."
+  });
+});
+
+test("options page can save and test provider-specific keys without exposing them", () => {
+  const saveRequest = normalizeIncomingMessage(
+    {
+      type: "saveProviderKey",
+      payload: {
+        provider: "anthropic",
+        apiKey: "sk-ant-api03-abcdef"
+      }
+    },
+    optionsSender
+  );
+
+  assert.equal(saveRequest.type, "saveProviderKey");
+  assert.deepEqual(saveRequest.payload, {
+    provider: "anthropic",
+    apiKey: "sk-ant-api03-abcdef"
+  });
+
+  const testRequest = normalizeIncomingMessage(
+    {
+      type: "testProviderConnection",
+      payload: {
+        provider: "openai"
+      }
+    },
+    optionsSender
+  );
+
+  assert.equal(testRequest.type, "testProviderConnection");
+  assert.deepEqual(testRequest.payload, {
+    provider: "openai"
   });
 });
 
