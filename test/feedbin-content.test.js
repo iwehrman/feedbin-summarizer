@@ -158,9 +158,12 @@ test("content script shows minimal prefetch debug dots for enabled feeds and art
     };
 
     await importFresh("content/feedbin.js");
+    const feedDot = await waitFor(() => document.querySelector(".feedbin-summarizer-prefetch-dot--feed"));
     const articleDot = await waitFor(() => document.querySelector(".feedbin-summarizer-prefetch-dot--article"));
 
-    assert.equal(document.querySelector(".feedbin-summarizer-prefetch-dot--feed"), null);
+    assert.equal(feedDot.dataset.state, "eligible");
+    assert.equal(document.querySelectorAll(".feedbin-summarizer-prefetch-dot--feed").length, 1);
+    assert.equal(feedDot.parentElement?.classList.contains("collection-label"), true);
     assert.equal(articleDot.dataset.state, "eligible");
   });
 });
@@ -215,7 +218,10 @@ test("content script shows a feed-level prefetch dot once a feed has ready summa
     const button = await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
 
     button.click();
-    const feedDot = await waitFor(() => document.querySelector(".feedbin-summarizer-prefetch-dot--feed"));
+    const feedDot = await waitFor(() => {
+      const dot = document.querySelector(".feedbin-summarizer-prefetch-dot--feed");
+      return dot?.dataset.state === "ready" ? dot : null;
+    });
 
     assert.equal(feedDot.dataset.state, "ready");
     assert.equal(document.querySelectorAll(".feedbin-summarizer-prefetch-dot--feed").length, 1);
@@ -281,5 +287,68 @@ test("content script still requests a summary when the visible article body is e
 
     assert.equal(summaryMessage.payload.sourceUrl, "https://example.com/story");
     assert.equal(summaryMessage.payload.articleText, "");
+  });
+});
+
+test("content script retries auto-summary once source metadata arrives", async () => {
+  const lateSourceFixture = FEEDBIN_FIXTURE
+    .replace('<a id="source_link" href="https://example.com/story">Source</a>', "")
+    .replace("<p>Original article body.</p>", "Loading full content...");
+
+  await withJSDOM(lateSourceFixture, async () => {
+    const sentMessages = [];
+
+    globalThis.chrome = {
+      runtime: {
+        onMessage: {
+          addListener() {}
+        },
+        sendMessage(message, callback) {
+          sentMessages.push(message);
+
+          setTimeout(() => {
+            if (message.type === "getFeedbinState") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: { 42: true }
+                }
+              });
+              return;
+            }
+
+            if (message.type === "summarizeArticle") {
+              callback({
+                ok: true,
+                result: {
+                  summaryText: "Auto summary after source appeared."
+                }
+              });
+              return;
+            }
+
+            callback({ ok: true, result: {} });
+          }, 0);
+        }
+      }
+    };
+
+    await importFresh("content/feedbin.js");
+    const body = document.querySelector(".content-styles");
+
+    await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
+    assert.equal(sentMessages.some(message => message.type === "summarizeArticle"), false);
+
+    const sourceLink = document.createElement("a");
+    sourceLink.id = "source_link";
+    sourceLink.href = "https://example.com/story";
+    sourceLink.textContent = "Source";
+    document.querySelector(".entry-header")?.insertAdjacentElement("afterend", sourceLink);
+
+    await waitFor(() => sentMessages.some(message => message.type === "summarizeArticle"));
+    await waitFor(() => /Auto summary after source appeared/.test(body.innerHTML));
+
+    const summaryMessage = sentMessages.find(message => message.type === "summarizeArticle");
+    assert.equal(summaryMessage.payload.sourceUrl, "https://example.com/story");
   });
 });

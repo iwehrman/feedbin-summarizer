@@ -245,13 +245,12 @@
 
   async function triggerSummary(button, context) {
     if (!context) {
-      return;
+      return false;
     }
 
     const articleText = extractArticleText(context.bodyNode);
-    if (!articleText && !context.sourceUrl) {
-      console.error("Feedbin Summarizer: no article text or source URL was available to summarize.");
-      return;
+    if (!canSummarizeContext(context, articleText)) {
+      return false;
     }
 
     setButtonLoading(button, true);
@@ -309,6 +308,8 @@
         }
       }
     }
+
+    return true;
   }
 
   function getActiveEntryContext() {
@@ -429,6 +430,26 @@
     }
 
     return cleanText(clone.innerText || "");
+  }
+
+  function canSummarizeContext(context, articleText = extractArticleText(context?.bodyNode)) {
+    const normalizedArticleText = cleanText(articleText);
+    if (normalizedArticleText && !isLoadingPlaceholderText(normalizedArticleText)) {
+      return true;
+    }
+
+    return Boolean(context?.sourceUrl);
+  }
+
+  function isLoadingPlaceholderText(value) {
+    const normalized = cleanText(value).toLowerCase();
+    return (
+      normalized === "loading" ||
+      normalized === "loading..." ||
+      normalized === "loading full content" ||
+      normalized === "loading full content..." ||
+      /^loading\b/.test(normalized)
+    );
   }
 
   function buildSummaryHtml(summaryText) {
@@ -803,16 +824,21 @@
       return;
     }
 
-    state.lastAutoAttemptEntryId = context.entryId;
     if (!context.isExtractActive) {
       const prefetchedSummary = getPrefetchedSummary(context.entryId);
       if (prefetchedSummary) {
+        state.lastAutoAttemptEntryId = context.entryId;
         renderSummary(context, prefetchedSummary, createSummaryState(context));
         syncButtonState(button, context);
         return;
       }
     }
 
+    if (!canSummarizeContext(context)) {
+      return;
+    }
+
+    state.lastAutoAttemptEntryId = context.entryId;
     void triggerSummary(button, context);
   }
 
@@ -1474,7 +1500,7 @@
       }
     }
 
-    return hasReady ? "ready" : "";
+    return hasReady ? "ready" : "eligible";
   }
 
   function resolveFeedIndicatorTarget(feedItem) {
