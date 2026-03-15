@@ -17,6 +17,8 @@
   const PREFETCH_SELECTION_WAIT_MS = 4000;
   const PREFETCHED_SUMMARY_LIMIT = 12;
   const PREPARING_SWAP_CLASS = "feedbin-summarizer-preparing-swap";
+  const ACTIVE_ICON_COLOR = "rgb(7, 172, 71)";
+  const DEFAULT_OFF_ICON_COLOR = "rgb(246, 246, 246)";
 
   const state = {
     activeSummary: null,
@@ -173,6 +175,7 @@
     const button = wrap.querySelector(`#${SUMMARY_BUTTON_ID}`);
     button.dataset.entryId = context.entryId;
     attachExtractPreferenceBridge(context);
+    syncButtonPalette(button, context);
     syncButtonState(button, context);
     maybeAutoApplySummary(context, button);
     managePrefetchQueue(context);
@@ -191,11 +194,11 @@
     button.setAttribute("aria-label", "Summarize article");
     button.innerHTML = `
       <svg viewBox="0 0 14 16" class="feedbin-summarizer-toolbar-icon feedbin-summarizer-toolbar-icon-off" aria-hidden="true">
-        <path style="fill: rgb(246, 246, 246) !important;" d="M11 14.5V16H3v-1.5zm1.5-1.5V3A1.5 1.5 0 0 0 11 1.5H3A1.5 1.5 0 0 0 1.5 3v10A1.5 1.5 0 0 0 3 14.5V16l-.154-.004A3 3 0 0 1 0 13V3A3 3 0 0 1 2.846.004L3 0h8l.154.004A3 3 0 0 1 14 3v10a3 3 0 0 1-2.846 2.996L11 16v-1.5a1.5 1.5 0 0 0 1.5-1.5"></path>
-        <path style="fill: rgb(246, 246, 246) !important;" d="M7 4.25v1.5H3.5a.75.75 0 0 1 0-1.5zM10.5 4.25a.75.75 0 0 1 0 1.5h-2v-1.5zM8.75 7.25a.75.75 0 0 1 0 1.5H3.5a.75.75 0 0 1 0-1.5z"></path>
+        <path style="fill: currentColor !important;" d="M11 14.5V16H3v-1.5zm1.5-1.5V3A1.5 1.5 0 0 0 11 1.5H3A1.5 1.5 0 0 0 1.5 3v10A1.5 1.5 0 0 0 3 14.5V16l-.154-.004A3 3 0 0 1 0 13V3A3 3 0 0 1 2.846.004L3 0h8l.154.004A3 3 0 0 1 14 3v10a3 3 0 0 1-2.846 2.996L11 16v-1.5a1.5 1.5 0 0 0 1.5-1.5"></path>
+        <path style="fill: currentColor !important;" d="M7 4.25v1.5H3.5a.75.75 0 0 1 0-1.5zM10.5 4.25a.75.75 0 0 1 0 1.5h-2v-1.5zM8.75 7.25a.75.75 0 0 1 0 1.5H3.5a.75.75 0 0 1 0-1.5z"></path>
       </svg>
       <svg viewBox="0 0 14 16" class="feedbin-summarizer-toolbar-icon feedbin-summarizer-toolbar-icon-on" aria-hidden="true">
-        <path style="fill: rgb(7, 172, 71) !important;" d="M11 0a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H3a3 3 0 0 1-3-3V3a3 3 0 0 1 3-3zM3.5 7.25a.75.75 0 0 0 0 1.5h5.25a.75.75 0 0 0 0-1.5zm0-3a.75.75 0 0 0 0 1.5H7v-1.5zm5 1.5h2a.75.75 0 0 0 0-1.5h-2z"></path>
+        <path style="fill: currentColor !important;" d="M11 0a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H3a3 3 0 0 1-3-3V3a3 3 0 0 1 3-3zM3.5 7.25a.75.75 0 0 0 0 1.5h5.25a.75.75 0 0 0 0-1.5zm0-3a.75.75 0 0 0 0 1.5H7v-1.5zm5 1.5h2a.75.75 0 0 0 0-1.5h-2z"></path>
       </svg>
     `;
     button.addEventListener("click", handleSummarizeClick, true);
@@ -482,6 +485,42 @@
 
     button.title = isActive ? "Show original article" : "Summarize article";
     button.setAttribute("aria-label", isActive ? "Show original article" : "Summarize article");
+  }
+
+  function syncButtonPalette(button, context) {
+    const referenceButton = getReferenceToolbarButton(button, context);
+    const offColor = referenceButton
+      ? getComputedStyle(referenceButton).color
+      : getComputedStyle(context.currentEntry).color || DEFAULT_OFF_ICON_COLOR;
+
+    button.style.setProperty("--feedbin-summarizer-icon-off-color", offColor || DEFAULT_OFF_ICON_COLOR);
+    button.style.setProperty("--feedbin-summarizer-icon-on-color", ACTIVE_ICON_COLOR);
+  }
+
+  function getReferenceToolbarButton(button, context) {
+    const toolbar = context.toolbarButtons;
+    if (!(toolbar instanceof HTMLElement)) {
+      return null;
+    }
+
+    const nativeButtons = Array.from(toolbar.querySelectorAll(".entry-button"))
+      .filter(candidate => candidate instanceof HTMLElement && candidate !== button && isVisibleElement(candidate));
+
+    return nativeButtons.find(candidate => !candidate.classList.contains("active")) || nativeButtons[0] || null;
+  }
+
+  function isVisibleElement(element) {
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
+
+    const style = getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+      return false;
+    }
+
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
   }
 
   function setButtonLoading(button, isLoading) {
