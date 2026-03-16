@@ -11,8 +11,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
     "Capture the main point, the key facts or arguments, and why the piece matters.",
     "Prioritize concrete details and implications.",
     "Skip filler, repetition, and minor examples.",
-    "Note important uncertainty briefly.",
-    "",
     "Return plain text only. No sections, headers, bullets, or lists. No markdown."
   ].join(" ")
 });
