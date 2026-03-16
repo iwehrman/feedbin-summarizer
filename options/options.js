@@ -27,11 +27,24 @@ const keyFields = new Map(
 const keyStatuses = new Map(
   PROVIDERS.map(provider => [provider, document.getElementById(`${provider}-key-status`)])
 );
+const providerActions = new Map(
+  PROVIDERS.map(provider => [
+    provider,
+    {
+      save: document.querySelector(`[data-provider-action="save-key"][data-provider="${provider}"]`),
+      clear: document.querySelector(`[data-provider-action="clear-key"][data-provider="${provider}"]`),
+      test: document.querySelector(`[data-provider-action="test"][data-provider="${provider}"]`)
+    }
+  ])
+);
 const testIndicators = new Map(
   PROVIDERS.map(provider => [provider, document.getElementById(`${provider}-test-indicator`)])
 );
 const providerLabels = new Map(
   PROVIDERS.map(provider => [provider, document.querySelector(`[data-provider-label="${provider}"]`)])
+);
+const providerKeyStates = new Map(
+  PROVIDERS.map(provider => [provider, { hasKey: false }])
 );
 
 let saveTimer = null;
@@ -55,7 +68,11 @@ async function init() {
 }
 
 function handleFormInteraction(event) {
+  const secretProvider = getSecretFieldProvider(event);
   if (eventTargetsSecretField(event)) {
+    clearProviderKeyStatus(secretProvider);
+    setTestIndicator(secretProvider, "");
+    syncProviderActionState(secretProvider);
     return;
   }
 
@@ -111,7 +128,7 @@ async function saveKeyFromField(provider) {
   field.value = "";
   setTestIndicator(provider, "");
   renderKeyStatus(provider, response.result.keyStatus);
-  setStatus(`${PROVIDER_LABELS[provider]} key saved.`, "success");
+  setStatus("");
 }
 
 async function clearProviderKey(provider) {
@@ -129,7 +146,7 @@ async function clearProviderKey(provider) {
 
   setTestIndicator(provider, "");
   renderKeyStatus(provider, response.result.keyStatus);
-  setStatus(`${PROVIDER_LABELS[provider]} key cleared.`, "success");
+  setStatus("");
 }
 
 async function testProviderConnection(provider) {
@@ -155,13 +172,12 @@ async function testProviderConnection(provider) {
   }
 
   setTestIndicator(provider, "success");
-  renderKeyStatus(provider, { hasKey: true });
+  clearProviderKeyStatus(provider);
   setStatus("");
 }
 
 function scheduleAutoSave() {
   window.clearTimeout(saveTimer);
-  setStatus("Saving...");
   saveTimer = window.setTimeout(() => {
     handleAutoSave().catch(error => {
       setStatus(error.message || String(error), "error");
@@ -172,7 +188,7 @@ function scheduleAutoSave() {
 async function handleAutoSave() {
   saveTimer = null;
   await saveNonSecretSettings();
-  setStatus("Saved.", "success");
+  setStatus("");
 }
 
 function flushPendingSave() {
@@ -227,18 +243,12 @@ function renderAllKeyStatuses(nextStatuses) {
   }
 }
 
-function renderKeyStatus(provider, keyState, overrideMessage = "", tone = "") {
-  if (overrideMessage) {
-    setProviderKeyStatus(provider, overrideMessage, tone);
-    return;
-  }
-
-  if (keyState?.hasKey) {
-    setProviderKeyStatus(provider, "Saved locally.", "success");
-    return;
-  }
-
-  setProviderKeyStatus(provider, "No key saved.");
+function renderKeyStatus(provider, keyState) {
+  providerKeyStates.set(provider, {
+    hasKey: Boolean(keyState?.hasKey)
+  });
+  clearProviderKeyStatus(provider);
+  syncProviderActionState(provider);
 }
 
 function setProviderKeyStatus(provider, message, tone = "") {
@@ -257,6 +267,10 @@ function setProviderKeyStatus(provider, message, tone = "") {
   }
 }
 
+function clearProviderKeyStatus(provider) {
+  setProviderKeyStatus(provider, "");
+}
+
 function setTestIndicator(provider, state) {
   const indicator = testIndicators.get(provider);
   if (!indicator) {
@@ -272,20 +286,20 @@ function setTestIndicator(provider, state) {
     case "pending":
       indicator.classList.add("is-visible");
       indicator.textContent = "...";
-      indicator.setAttribute("title", "Testing API");
-      indicator.setAttribute("aria-label", "Testing API");
+      indicator.setAttribute("title", "Testing Key");
+      indicator.setAttribute("aria-label", "Testing Key");
       break;
     case "success":
       indicator.classList.add("is-visible", "is-success");
       indicator.textContent = "✓";
-      indicator.setAttribute("title", "API verified");
-      indicator.setAttribute("aria-label", "API verified");
+      indicator.setAttribute("title", "Key Verified");
+      indicator.setAttribute("aria-label", "Key Verified");
       break;
     case "error":
       indicator.classList.add("is-visible", "is-error");
       indicator.textContent = "×";
-      indicator.setAttribute("title", "API test failed");
-      indicator.setAttribute("aria-label", "API test failed");
+      indicator.setAttribute("title", "Key Test Failed");
+      indicator.setAttribute("aria-label", "Key Test Failed");
       break;
     default:
       break;
@@ -306,6 +320,37 @@ function syncProviderUi() {
     if (label) {
       label.textContent = provider === activeProvider ? "Active" : "Select";
     }
+  }
+
+  syncProviderActionStates();
+}
+
+function syncProviderActionStates() {
+  for (const provider of PROVIDERS) {
+    syncProviderActionState(provider);
+  }
+}
+
+function syncProviderActionState(provider) {
+  const actions = providerActions.get(provider);
+  if (!actions) {
+    return;
+  }
+
+  const hasSavedKey = Boolean(providerKeyStates.get(provider)?.hasKey);
+  const hasTypedKey = Boolean(getProviderKeyInputValue(provider));
+
+  if (actions.save) {
+    actions.save.textContent = "Update";
+    actions.save.disabled = !hasTypedKey;
+  }
+
+  if (actions.clear) {
+    actions.clear.disabled = !hasSavedKey;
+  }
+
+  if (actions.test) {
+    actions.test.disabled = !hasSavedKey && !hasTypedKey;
   }
 }
 
@@ -380,6 +425,16 @@ function setStatus(message, tone = "") {
 
 function eventTargetsSecretField(event) {
   return Boolean(event?.target?.id && /ApiKey$/.test(event.target.id));
+}
+
+function getSecretFieldProvider(event) {
+  const targetId = String(event?.target?.id || "");
+  const match = targetId.match(/^(openai|anthropic)ApiKey$/);
+  return match ? match[1] : "";
+}
+
+function getProviderKeyInputValue(provider) {
+  return String(keyFields.get(provider)?.value || "").trim();
 }
 
 function getSelectedProvider() {

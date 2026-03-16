@@ -34,6 +34,20 @@ body {
   margin-bottom: 16px;
 }
 
+.header-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+
+.header-icon {
+  width: 19px;
+  height: 22px;
+  color: #07ac47;
+  flex: 0 0 auto;
+}
+
 .header h1 {
   margin: 0;
   font: 600 22px/1.2 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
@@ -59,7 +73,6 @@ body {
 
 .settings-group + .settings-group {
   padding-top: 18px;
-  border-top: 1px solid var(--panel-border);
 }
 
 .settings-group h2 {
@@ -92,7 +105,7 @@ body {
   align-items: center;
   justify-content: center;
   min-width: 118px;
-  padding: 9px 14px;
+  padding: 8px 12px;
   border: 1px solid #d7dbe2;
   border-radius: 999px;
   background: #ffffff;
@@ -103,11 +116,7 @@ body {
 
 .provider-card-pill span {
   min-width: 0;
-  padding-inline: 12px;
-}
-
-.provider-card-pill input:checked + span {
-  min-width: 96px;
+  padding-inline: 10px;
 }
 
 .provider-pill input:checked + span {
@@ -134,7 +143,7 @@ body {
 
 .provider-card-header {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
 }
@@ -187,7 +196,6 @@ button {
 }
 
 input,
-select,
 textarea {
   width: 100%;
   border: 1px solid #d7dbe2;
@@ -197,9 +205,23 @@ textarea {
   padding: 10px 12px;
 }
 
+select {
+  width: 100%;
+  appearance: none;
+  border: 1px solid #d7dbe2;
+  border-radius: 4px;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M3.25 5.25 7 9l3.75-3.75' fill='none' stroke='%23656b75' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.6'/%3E%3C/svg%3E");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+  background-size: 14px 14px;
+  color: var(--text);
+  padding: 10px 40px 10px 12px;
+}
+
 textarea {
   resize: vertical;
-  min-height: 180px;
+  min-height: 132px;
 }
 
 input[type="checkbox"] {
@@ -217,6 +239,8 @@ input[type="checkbox"] {
 
 .key-actions {
   margin-top: -2px;
+  flex-wrap: nowrap;
+  gap: 10px;
 }
 
 .test-indicator {
@@ -228,6 +252,7 @@ input[type="checkbox"] {
   color: var(--muted);
   font: 700 14px/1 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
   opacity: 0;
+  flex: 0 0 18px;
   transform: scale(0.85);
   transition: opacity 120ms ease, transform 120ms ease;
   pointer-events: none;
@@ -254,6 +279,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .secondary {
   background: #ffffff;
   border-color: #d7dbe2;
@@ -267,7 +297,6 @@ button {
 }
 
 .status {
-  min-height: 1.25rem;
   color: var(--muted);
 }
 
@@ -275,6 +304,14 @@ button {
   display: inline-flex;
   align-items: center;
   min-height: 1.25rem;
+}
+
+.status:empty {
+  display: none;
+}
+
+.provider-key-status:empty {
+  display: none;
 }
 
 .status.is-error {

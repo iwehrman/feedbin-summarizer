@@ -14,9 +14,9 @@ const OPTIONS_HTML = `
 
       <section data-provider-card="openai"></section>
       <input type="password" name="openaiApiKey" id="openaiApiKey">
-      <button type="button" data-provider-action="save-key" data-provider="openai">Save OpenAI key</button>
-      <button type="button" data-provider-action="clear-key" data-provider="openai">Clear OpenAI key</button>
-      <button type="button" data-provider-action="test" data-provider="openai">Test OpenAI</button>
+      <button type="button" data-provider-action="save-key" data-provider="openai">Update</button>
+      <button type="button" data-provider-action="clear-key" data-provider="openai">Clear</button>
+      <button type="button" data-provider-action="test" data-provider="openai">Test</button>
       <span id="openai-test-indicator"></span>
       <select name="openaiModel" id="openaiModel">
         <option value="gpt-5-nano">GPT-5 Nano</option>
@@ -24,20 +24,20 @@ const OPTIONS_HTML = `
         <option value="gpt-5">GPT-5</option>
       </select>
       <select name="openaiReasoningEffort" id="openaiReasoningEffort">
-        <option value="">Model default</option>
         <option value="minimal">Minimal</option>
+        <option value="low">Low</option>
       </select>
       <select name="openaiVerbosity" id="openaiVerbosity">
-        <option value="">Model default</option>
         <option value="low">Low</option>
+        <option value="medium">Medium</option>
       </select>
       <span id="openai-key-status"></span>
 
       <section data-provider-card="anthropic"></section>
       <input type="password" name="anthropicApiKey" id="anthropicApiKey">
-      <button type="button" data-provider-action="save-key" data-provider="anthropic">Save Anthropic key</button>
-      <button type="button" data-provider-action="clear-key" data-provider="anthropic">Clear Anthropic key</button>
-      <button type="button" data-provider-action="test" data-provider="anthropic">Test Anthropic</button>
+      <button type="button" data-provider-action="save-key" data-provider="anthropic">Update</button>
+      <button type="button" data-provider-action="clear-key" data-provider="anthropic">Clear</button>
+      <button type="button" data-provider-action="test" data-provider="anthropic">Test</button>
       <span id="anthropic-test-indicator"></span>
       <select name="anthropicModel" id="anthropicModel">
         <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
@@ -96,12 +96,20 @@ test("options page never repopulates saved provider keys", async () => {
     };
 
     await importFresh("options/options.js");
-    await waitFor(() => document.getElementById("openai-key-status").textContent.includes("Saved locally."));
+    await waitFor(() => document.querySelector('[data-provider-action="save-key"][data-provider="openai"]').textContent === "Update");
 
     assert.equal(document.getElementById("openaiApiKey").value, "");
     assert.equal(document.getElementById("anthropicApiKey").value, "");
-    assert.equal(document.getElementById("openai-key-status").textContent, "Saved locally.");
-    assert.equal(document.getElementById("anthropic-key-status").textContent, "No key saved.");
+    assert.equal(document.getElementById("openai-key-status").textContent, "");
+    assert.equal(document.getElementById("anthropic-key-status").textContent, "");
+    assert.equal(document.querySelector('[data-provider-action="save-key"][data-provider="openai"]').textContent, "Update");
+    assert.equal(document.querySelector('[data-provider-action="save-key"][data-provider="openai"]').disabled, true);
+    assert.equal(document.querySelector('[data-provider-action="clear-key"][data-provider="openai"]').disabled, false);
+    assert.equal(document.querySelector('[data-provider-action="test"][data-provider="openai"]').disabled, false);
+    assert.equal(document.querySelector('[data-provider-action="save-key"][data-provider="anthropic"]').textContent, "Update");
+    assert.equal(document.querySelector('[data-provider-action="save-key"][data-provider="anthropic"]').disabled, true);
+    assert.equal(document.querySelector('[data-provider-action="clear-key"][data-provider="anthropic"]').disabled, true);
+    assert.equal(document.querySelector('[data-provider-action="test"][data-provider="anthropic"]').disabled, true);
     assert.equal(document.querySelector('input[name="provider"][value="anthropic"]').checked, true);
     assert.equal(sentMessages[0].type, "getOptionsState");
   });
@@ -158,7 +166,7 @@ test("options page shows a local checkmark when provider API verification succee
 
     await waitFor(() => document.getElementById("openai-test-indicator").textContent === "✓");
 
-    assert.equal(document.getElementById("openai-key-status").textContent, "Saved locally.");
+    assert.equal(document.getElementById("openai-key-status").textContent, "");
     assert.equal(document.getElementById("openai-test-indicator").classList.contains("is-success"), true);
     assert.equal(document.getElementById("status").textContent, "");
   });
@@ -205,15 +213,28 @@ test("options page submits a freshly typed provider key and then clears the fiel
 
     await importFresh("options/options.js");
     const keyField = document.getElementById("anthropicApiKey");
+    const saveButton = document.querySelector('[data-provider-action="save-key"][data-provider="anthropic"]');
+    const clearButton = document.querySelector('[data-provider-action="clear-key"][data-provider="anthropic"]');
+
+    assert.equal(saveButton.textContent, "Update");
+    assert.equal(saveButton.disabled, true);
+    assert.equal(clearButton.disabled, true);
+
     keyField.value = "sk-ant-test_1234567890";
+    keyField.dispatchEvent(new Event("input", { bubbles: true }));
+    assert.equal(saveButton.disabled, false);
     document.querySelector('[data-provider-action="save-key"][data-provider="anthropic"]').click();
 
     await waitFor(() => sentMessages.some(message => message.type === "saveProviderKey"));
+    await waitFor(() => saveButton.textContent === "Update");
 
     const saveMessage = sentMessages.find(message => message.type === "saveProviderKey");
     assert.equal(saveMessage.payload.provider, "anthropic");
     assert.equal(saveMessage.payload.apiKey, "sk-ant-test_1234567890");
     assert.equal(keyField.value, "");
+    assert.equal(saveButton.textContent, "Update");
+    assert.equal(saveButton.disabled, true);
+    assert.equal(clearButton.disabled, false);
   });
 });
 
