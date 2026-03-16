@@ -21,6 +21,7 @@ const stageDir = path.join(distDir, packageBaseName);
 const zipPath = path.join(distDir, `${packageBaseName}.zip`);
 
 const runtimePaths = [
+  "assets",
   "manifest.json",
   "README.md",
   "SECURITY.md",
