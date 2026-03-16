@@ -93,6 +93,13 @@
   border-radius: 999px;
 }
 
+.feedbin-summarizer-status-notice {
+  margin: 0 0 1rem;
+  color: rgb(190, 69, 61);
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+
 html.feedbin-summarizer-preparing-swap .entry-content.current .content-styles {
   visibility: hidden;
 }

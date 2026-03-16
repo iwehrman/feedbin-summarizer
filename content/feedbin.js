@@ -1,6 +1,7 @@
 (() => {
   const SUMMARY_BUTTON_ID = "feedbin-summarizer-toolbar-button";
   const SUMMARY_BUTTON_WRAP_CLASS = "feedbin-summarizer-button-wrap";
+  const SUMMARY_BUTTON_BOUND_FLAG = "feedbinSummarizerBound";
   const ACTIVE_ENTRY_SELECTOR = ".entry-content.current";
   const CONTENT_SELECTOR = ".content-styles";
   const TITLE_SELECTOR = "header.entry-header h1";
@@ -18,6 +19,8 @@
   const PREFETCHED_SUMMARY_LIMIT = 12;
   const PREPARING_SWAP_CLASS = "feedbin-summarizer-preparing-swap";
   const PREFETCH_DEBUG_DOT_CLASS = "feedbin-summarizer-prefetch-dot";
+  const STATUS_NOTICE_CLASS = "feedbin-summarizer-status-notice";
+  const STATUS_NOTICE_DURATION_MS = 6000;
   const ACTIVE_ICON_COLOR = "rgb(7, 172, 71)";
   const DEFAULT_OFF_ICON_COLOR = "rgb(246, 246, 246)";
 
@@ -42,7 +45,8 @@
     prefetchedSummaries: new Map(),
     prefetchDebugEntries: new Map(),
     pendingPrefetchedEntryId: "",
-    pendingPrefetchedSwapTimer: null
+    pendingPrefetchedSwapTimer: null,
+    statusNoticeTimer: null
   };
 
   boot();
@@ -103,6 +107,7 @@
   function refreshUi() {
     const context = getActiveEntryContext();
     if (!context) {
+      clearStatusNotice();
       state.lastViewedEntryId = "";
       state.lastAutoAttemptEntryId = "";
       clearPendingRequest();
@@ -117,6 +122,7 @@
     }
 
     if (state.lastViewedEntryId !== context.entryId) {
+      clearStatusNotice();
       state.lastViewedEntryId = context.entryId;
       state.lastAutoAttemptEntryId = "";
     }
@@ -176,7 +182,11 @@
       }
     }
 
-    const button = wrap.querySelector(`#${SUMMARY_BUTTON_ID}`);
+    const button = ensureSummaryButton(wrap);
+    if (!isButtonElement(button)) {
+      return;
+    }
+
     button.dataset.entryId = context.entryId;
     attachExtractPreferenceBridge(context);
     syncButtonPalette(button, context);
@@ -191,6 +201,11 @@
     const wrap = document.createElement("div");
     wrap.className = `entry-button-wrap ${SUMMARY_BUTTON_WRAP_CLASS}`;
 
+    wrap.appendChild(createSummaryButton());
+    return wrap;
+  }
+
+  function createSummaryButton() {
     const button = document.createElement("button");
     button.id = SUMMARY_BUTTON_ID;
     button.type = "button";
@@ -206,10 +221,33 @@
         <path style="fill: currentColor !important;" d="M11 0a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H3a3 3 0 0 1-3-3V3a3 3 0 0 1 3-3zM3.5 7.25a.75.75 0 0 0 0 1.5h5.25a.75.75 0 0 0 0-1.5zm0-3a.75.75 0 0 0 0 1.5H7v-1.5zm5 1.5h2a.75.75 0 0 0 0-1.5h-2z"></path>
       </svg>
     `;
-    button.addEventListener("click", handleSummarizeClick, true);
+    bindSummaryButton(button);
+    return button;
+  }
 
-    wrap.appendChild(button);
-    return wrap;
+  function ensureSummaryButton(wrap) {
+    const existingButton = wrap.querySelector(`#${SUMMARY_BUTTON_ID}`);
+    if (isButtonElement(existingButton)) {
+      bindSummaryButton(existingButton);
+      return existingButton;
+    }
+
+    const button = createSummaryButton();
+    wrap.replaceChildren(button);
+    return button;
+  }
+
+  function bindSummaryButton(button) {
+    if (button.dataset[SUMMARY_BUTTON_BOUND_FLAG] === "true") {
+      return;
+    }
+
+    button.addEventListener("click", handleSummarizeClick, true);
+    button.dataset[SUMMARY_BUTTON_BOUND_FLAG] = "true";
+  }
+
+  function isButtonElement(value) {
+    return value instanceof HTMLElement && value.tagName === "BUTTON";
   }
 
   async function handleSummarizeClick(event) {
@@ -298,6 +336,7 @@
       renderSummary(latestContext, response.result.summaryText, summaryState);
     } catch (error) {
       clearPendingPrefetchedSwap();
+      showSummaryError(context, error);
       console.error("Feedbin Summarizer:", error);
     } finally {
       if (state.pendingRequest && state.pendingRequest.requestId === requestId) {
@@ -375,6 +414,69 @@
       originalHtml: context.bodyNode.innerHTML,
       originalText: extractArticleText(context.bodyNode)
     };
+  }
+
+  function showSummaryError(context, error) {
+    const message = getSummaryErrorMessage(error);
+    if (!message) {
+      return;
+    }
+
+    const notice = ensureStatusNotice(context);
+    if (!notice) {
+      return;
+    }
+
+    notice.textContent = message;
+    notice.hidden = false;
+    window.clearTimeout(state.statusNoticeTimer);
+    state.statusNoticeTimer = window.setTimeout(() => {
+      clearStatusNotice();
+    }, STATUS_NOTICE_DURATION_MS);
+  }
+
+  function getSummaryErrorMessage(error) {
+    const message = String(error?.message || "").trim();
+    if (!message) {
+      return "Summary failed. Please try again.";
+    }
+
+    if (
+      /Receiving end does not exist/i.test(message) ||
+      /Extension context invalidated/i.test(message)
+    ) {
+      return "Refresh Feedbin after reloading the extension, then try Summary again.";
+    }
+
+    return message;
+  }
+
+  function ensureStatusNotice(context) {
+    const anchor = context?.bodyNode;
+    if (!(anchor instanceof HTMLElement)) {
+      return null;
+    }
+
+    let notice = context.currentEntry.querySelector(`.${STATUS_NOTICE_CLASS}`);
+    if (!(notice instanceof HTMLElement)) {
+      notice = document.createElement("div");
+      notice.className = STATUS_NOTICE_CLASS;
+      notice.hidden = true;
+      notice.setAttribute("role", "status");
+      notice.setAttribute("aria-live", "polite");
+      anchor.insertAdjacentElement("beforebegin", notice);
+    }
+
+    return notice;
+  }
+
+  function clearStatusNotice() {
+    window.clearTimeout(state.statusNoticeTimer);
+    state.statusNoticeTimer = null;
+
+    for (const notice of document.querySelectorAll(`.${STATUS_NOTICE_CLASS}`)) {
+      notice.remove();
+    }
   }
 
   function activateSummaryState(context, summaryState = createSummaryState(context)) {

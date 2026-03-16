@@ -352,3 +352,138 @@ test("content script retries auto-summary once source metadata arrives", async (
     assert.equal(summaryMessage.payload.sourceUrl, "https://example.com/story");
   });
 });
+
+test("content script rebinds a stale existing summary button and keeps it clickable", async () => {
+  const staleButtonFixture = FEEDBIN_FIXTURE.replace(
+    '<form data-behavior="toggle_extract" data-entry-id="entry-1">',
+    `<div class="entry-button-wrap feedbin-summarizer-button-wrap">
+            <button id="feedbin-summarizer-toolbar-button" type="button" class="entry-button feedbin-summarizer-toolbar-button" title="Summarize article" aria-label="Summarize article"></button>
+          </div>
+          <form data-behavior="toggle_extract" data-entry-id="entry-1">`
+  );
+
+  await withJSDOM(staleButtonFixture, async () => {
+    const sentMessages = [];
+
+    globalThis.chrome = {
+      runtime: {
+        onMessage: {
+          addListener() {}
+        },
+        sendMessage(message, callback) {
+          sentMessages.push(message);
+
+          setTimeout(() => {
+            if (message.type === "getFeedbinState") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: {}
+                }
+              });
+              return;
+            }
+
+            if (message.type === "setFeedSummaryPreference") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: { 42: true }
+                }
+              });
+              return;
+            }
+
+            if (message.type === "summarizeArticle") {
+              callback({
+                ok: true,
+                result: {
+                  summaryText: "Recovered summary."
+                }
+              });
+              return;
+            }
+
+            callback({ ok: true, result: {} });
+          }, 0);
+        }
+      }
+    };
+
+    await importFresh("content/feedbin.js");
+    const button = await waitFor(() => {
+      const candidate = document.getElementById("feedbin-summarizer-toolbar-button");
+      return candidate?.dataset.feedbinSummarizerBound === "true" ? candidate : null;
+    });
+    const body = document.querySelector(".content-styles");
+
+    button.click();
+
+    await waitFor(() => sentMessages.some(message => message.type === "summarizeArticle"));
+    await waitFor(() => /Recovered summary/.test(body.innerHTML));
+
+    assert.equal(button.dataset.feedbinSummarizerBound, "true");
+  });
+});
+
+test("content script shows a refresh hint when the extension runtime is stale", async () => {
+  await withJSDOM(FEEDBIN_FIXTURE, async () => {
+    const runtime = {
+      lastError: null,
+      onMessage: {
+        addListener() {}
+      },
+      sendMessage(message, callback) {
+        setTimeout(() => {
+          if (message.type === "getFeedbinState") {
+            callback({
+              ok: true,
+              result: {
+                summaryFeedPreferences: {}
+              }
+            });
+            return;
+          }
+
+          if (message.type === "setFeedSummaryPreference") {
+            callback({
+              ok: true,
+              result: {
+                summaryFeedPreferences: { 42: true }
+              }
+            });
+            return;
+          }
+
+          runtime.lastError = {
+            message: "Could not establish connection. Receiving end does not exist."
+          };
+          callback();
+          runtime.lastError = null;
+        }, 0);
+      }
+    };
+
+    globalThis.chrome = {
+      runtime
+    };
+
+    await importFresh("content/feedbin.js");
+    const button = await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
+    const originalConsoleError = console.error;
+    console.error = () => {};
+
+    try {
+      button.click();
+
+      const notice = await waitFor(() => document.querySelector(".feedbin-summarizer-status-notice"));
+      assert.match(
+        notice.textContent || "",
+        /Refresh Feedbin after reloading the extension, then try Summary again\./
+      );
+      assert.equal(button.classList.contains("is-loading"), false);
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+});
