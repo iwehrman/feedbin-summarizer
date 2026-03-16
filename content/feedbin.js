@@ -14,7 +14,7 @@
   const ENTRY_LIST_SELECTOR = "ul.entries-target";
   const ENTRY_ROW_SELECTOR = `${ENTRY_LIST_SELECTOR} li.entry-summary`;
   const ENTRY_ROW_LINK_SELECTOR = ".entry-summary-link";
-  const PREFETCH_LIMIT = 3;
+  const PREFETCH_LIMIT = 5;
   const PREFETCH_SELECTION_WAIT_MS = 4000;
   const PREFETCHED_SUMMARY_LIMIT = 12;
   const PREPARING_SWAP_CLASS = "feedbin-summarizer-preparing-swap";
