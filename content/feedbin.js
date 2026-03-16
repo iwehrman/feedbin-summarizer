@@ -38,9 +38,11 @@
     activePrefetchSignature: "",
     activePrefetchRequestId: "",
     activePrefetchFeedId: "",
+    activePrefetchEntryId: "",
     prefetchQueueToken: 0,
     unreadFeedPrefetchSignature: "",
     unreadFeedPrefetchRequestId: "",
+    unreadFeedPrefetchEntryId: "",
     unreadFeedPrefetchToken: 0,
     prefetchedSummaries: new Map(),
     prefetchDebugEntries: new Map(),
@@ -278,12 +280,19 @@
 
     persistSummaryPreference(context.feedId, true);
     rememberFeedSelection(context.feedId);
-    await triggerSummary(button, context);
+    await triggerSummary(button, context, {
+      prioritizeUserRequest: true
+    });
   }
 
-  async function triggerSummary(button, context) {
+  async function triggerSummary(button, context, options = {}) {
     if (!context) {
       return false;
+    }
+
+    if (options.prioritizeUserRequest) {
+      cancelPrefetchQueue();
+      cancelUnreadFeedPrefetchQueue();
     }
 
     const articleText = extractArticleText(context.bodyNode);
@@ -1009,6 +1018,11 @@
     }
 
     const candidates = getPrefetchCandidates(rows, selectedFeedId, context);
+    const candidateEntryIds = new Set(candidates.map(candidate => candidate.entryId));
+    if (state.activePrefetchRequestId && state.activePrefetchEntryId && !candidateEntryIds.has(state.activePrefetchEntryId)) {
+      cancelActivePrefetchRequest();
+    }
+
     const signature = `${selectedFeedId}:${candidates.map(candidate => candidate.entryId).join(",")}`;
     if (!candidates.length) {
       state.pendingFeedSelection = null;
@@ -1213,6 +1227,7 @@
 
       const requestId = `prefetch:${feedId}:${candidate.entryId}:${Date.now()}`;
       state.activePrefetchRequestId = requestId;
+      state.activePrefetchEntryId = candidate.entryId;
       markPrefetchFetching(candidate.entryId, candidate.feedId);
 
       try {
@@ -1235,6 +1250,7 @@
         clearFetchingPrefetchState(candidate.entryId);
         if (state.activePrefetchRequestId === requestId) {
           state.activePrefetchRequestId = "";
+          state.activePrefetchEntryId = "";
         }
       }
     }
@@ -1257,6 +1273,7 @@
 
       const requestId = `unread-prefetch:${candidate.feedId}:${candidate.entryId}:${Date.now()}`;
       state.unreadFeedPrefetchRequestId = requestId;
+      state.unreadFeedPrefetchEntryId = candidate.entryId;
       markPrefetchFetching(candidate.entryId, candidate.feedId);
 
       try {
@@ -1280,6 +1297,7 @@
         clearFetchingPrefetchState(candidate.entryId);
         if (state.unreadFeedPrefetchRequestId === requestId) {
           state.unreadFeedPrefetchRequestId = "";
+          state.unreadFeedPrefetchEntryId = "";
         }
       }
     }
@@ -1359,12 +1377,26 @@
     state.activePrefetchFeedId = "";
     state.pendingFeedSelection = null;
 
+    cancelActivePrefetchRequest();
+  }
+
+  function cancelUnreadFeedPrefetchQueue() {
+    state.unreadFeedPrefetchToken += 1;
+    state.unreadFeedPrefetchSignature = "";
+
+    cancelActiveUnreadFeedPrefetchRequest();
+  }
+
+  function cancelActivePrefetchRequest() {
     if (!state.activePrefetchRequestId) {
       return;
     }
 
     const requestId = state.activePrefetchRequestId;
+    const entryId = state.activePrefetchEntryId;
     state.activePrefetchRequestId = "";
+    state.activePrefetchEntryId = "";
+    clearFetchingPrefetchState(entryId);
     void sendMessage({
       type: "cancelPrefetch",
       payload: { requestId }
@@ -1373,16 +1405,16 @@
     });
   }
 
-  function cancelUnreadFeedPrefetchQueue() {
-    state.unreadFeedPrefetchToken += 1;
-    state.unreadFeedPrefetchSignature = "";
-
+  function cancelActiveUnreadFeedPrefetchRequest() {
     if (!state.unreadFeedPrefetchRequestId) {
       return;
     }
 
     const requestId = state.unreadFeedPrefetchRequestId;
+    const entryId = state.unreadFeedPrefetchEntryId;
     state.unreadFeedPrefetchRequestId = "";
+    state.unreadFeedPrefetchEntryId = "";
+    clearFetchingPrefetchState(entryId);
     void sendMessage({
       type: "cancelPrefetch",
       payload: { requestId }
