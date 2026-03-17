@@ -109,8 +109,10 @@ body {
 
 .settings-group h2 {
   margin: 0;
-  font: 600 15px/1.2 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
-  color: var(--text);
+  font: 700 12px/1.2 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .provider-grid {
@@ -182,7 +184,8 @@ body {
 
 .provider-card-header h3 {
   margin: 0;
-  font: 600 15px/1.2 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font: 600 16px/1.15 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: var(--text);
 }
 
 .field {
@@ -338,6 +341,44 @@ button:disabled {
   min-height: 1.25rem;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(13, 22, 35, 0.42);
+  z-index: 20;
+}
+
+.modal {
+  width: min(100%, 360px);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--panel-border-strong);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+}
+
+.modal h2 {
+  margin: 0;
+  font: 600 16px/1.2 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  color: var(--text);
+}
+
+.modal p {
+  margin: 0;
+  color: var(--muted);
+  font: 400 14px/1.5 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.modal-actions {
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .status:empty {
   display: none;
 }
@@ -382,5 +423,9 @@ code {
 
   .provider-card-header {
     flex-direction: column;
+  }
+
+  .modal {
+    width: 100%;
   }
 }

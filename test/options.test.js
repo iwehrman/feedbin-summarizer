@@ -50,6 +50,12 @@ const OPTIONS_HTML = `
       <textarea name="systemPrompt" id="systemPrompt"></textarea>
       <span id="status"></span>
     </form>
+    <div id="confirm-modal" hidden>
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-message"></p>
+      <button type="button" id="confirm-cancel">Cancel</button>
+      <button type="button" id="confirm-submit">Clear</button>
+    </div>
   </body>
 </html>
 `;
@@ -235,6 +241,73 @@ test("options page submits a freshly typed provider key and then clears the fiel
     assert.equal(saveButton.textContent, "Update");
     assert.equal(saveButton.disabled, true);
     assert.equal(clearButton.disabled, false);
+  });
+});
+
+test("options page confirms before clearing a saved provider key", async () => {
+  await withJSDOM(OPTIONS_HTML, async () => {
+    const sentMessages = [];
+    globalThis.chrome = {
+      runtime: {
+        sendMessage(message, callback) {
+          sentMessages.push(message);
+          if (message.type === "getOptionsState") {
+            callback({
+              ok: true,
+              result: {
+                settings: {},
+                keyStatuses: {
+                  openai: { hasKey: true, maskedPreview: "••••••••••••" },
+                  anthropic: { hasKey: false, maskedPreview: "" }
+                }
+              }
+            });
+            return;
+          }
+
+          if (message.type === "clearProviderKey") {
+            callback({
+              ok: true,
+              result: {
+                keyStatus: {
+                  hasKey: false,
+                  maskedPreview: ""
+                }
+              }
+            });
+            return;
+          }
+
+          callback({ ok: true, result: { settings: {} } });
+        }
+      }
+    };
+
+    await importFresh("options/options.js");
+
+    const clearButton = document.querySelector('[data-provider-action="clear-key"][data-provider="openai"]');
+    const confirmModal = document.getElementById("confirm-modal");
+    const confirmCancel = document.getElementById("confirm-cancel");
+    const confirmSubmit = document.getElementById("confirm-submit");
+
+    clearButton.click();
+
+    assert.equal(confirmModal.hidden, false);
+    assert.equal(sentMessages.some(message => message.type === "clearProviderKey"), false);
+
+    confirmCancel.click();
+    assert.equal(confirmModal.hidden, true);
+    assert.equal(sentMessages.some(message => message.type === "clearProviderKey"), false);
+
+    clearButton.click();
+    confirmSubmit.click();
+
+    await waitFor(() => sentMessages.some(message => message.type === "clearProviderKey"));
+
+    const clearMessage = sentMessages.find(message => message.type === "clearProviderKey");
+    assert.equal(clearMessage.payload.provider, "openai");
+    assert.equal(confirmModal.hidden, true);
+    assert.equal(clearButton.disabled, true);
   });
 });
 

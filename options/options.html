@@ -89,7 +89,7 @@
                   </div>
                   <label class="provider-pill provider-card-pill">
                     <input type="radio" name="provider" value="anthropic">
-                    <span data-provider-label="anthropic">Select</span>
+                    <span data-provider-label="anthropic">Use</span>
                   </label>
                 </header>
 
@@ -147,6 +147,17 @@
         </form>
       </section>
     </main>
+
+    <div id="confirm-modal" class="modal-backdrop" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+        <h2 id="confirm-title">Clear API Key?</h2>
+        <p id="confirm-message"></p>
+        <div class="actions modal-actions">
+          <button type="button" id="confirm-cancel" class="secondary">Cancel</button>
+          <button type="button" id="confirm-submit" class="secondary danger">Clear</button>
+        </div>
+      </div>
+    </div>
 
     <script type="module" src="options.js"></script>
   </body>

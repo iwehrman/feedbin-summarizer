@@ -43,11 +43,17 @@ const testIndicators = new Map(
 const providerLabels = new Map(
   PROVIDERS.map(provider => [provider, document.querySelector(`[data-provider-label="${provider}"]`)])
 );
+const confirmModal = document.getElementById("confirm-modal");
+const confirmTitle = document.getElementById("confirm-title");
+const confirmMessage = document.getElementById("confirm-message");
+const confirmCancelButton = document.getElementById("confirm-cancel");
+const confirmSubmitButton = document.getElementById("confirm-submit");
 const providerKeyStates = new Map(
   PROVIDERS.map(provider => [provider, { hasKey: false }])
 );
 
 let saveTimer = null;
+let pendingConfirmation = null;
 
 init().catch(error => {
   setStatus(error.message || String(error), "error");
@@ -65,6 +71,19 @@ async function init() {
   for (const button of document.querySelectorAll("[data-provider-action]")) {
     button.addEventListener("click", handleProviderAction);
   }
+
+  confirmCancelButton?.addEventListener("click", () => resolveConfirmation(false));
+  confirmSubmitButton?.addEventListener("click", () => resolveConfirmation(true));
+  confirmModal?.addEventListener("click", event => {
+    if (event.target === confirmModal) {
+      resolveConfirmation(false);
+    }
+  });
+  window.addEventListener("keydown", event => {
+    if (event.key === "Escape" && pendingConfirmation) {
+      resolveConfirmation(false);
+    }
+  });
 }
 
 function handleFormInteraction(event) {
@@ -96,7 +115,9 @@ async function handleProviderAction(event) {
         await saveKeyFromField(provider);
         break;
       case "clear-key":
-        await clearProviderKey(provider);
+        if (await confirmClearProviderKey(provider)) {
+          await clearProviderKey(provider);
+        }
         break;
       case "test":
         await testProviderConnection(provider);
@@ -147,6 +168,37 @@ async function clearProviderKey(provider) {
   setTestIndicator(provider, "");
   renderKeyStatus(provider, response.result.keyStatus);
   setStatus("");
+}
+
+function confirmClearProviderKey(provider) {
+  if (!confirmModal || !confirmMessage || !confirmSubmitButton || !confirmTitle) {
+    return Promise.resolve(window.confirm(`Clear the saved ${PROVIDER_LABELS[provider]} API key?`));
+  }
+
+  if (pendingConfirmation) {
+    return Promise.resolve(false);
+  }
+
+  confirmTitle.textContent = "Clear API Key?";
+  confirmMessage.textContent = `This will remove the saved ${PROVIDER_LABELS[provider]} API key from the extension.`;
+  confirmSubmitButton.textContent = "Clear";
+  confirmModal.hidden = false;
+
+  return new Promise(resolve => {
+    pendingConfirmation = { resolve };
+    confirmCancelButton?.focus();
+  });
+}
+
+function resolveConfirmation(confirmed) {
+  if (!pendingConfirmation) {
+    return;
+  }
+
+  confirmModal.hidden = true;
+  const { resolve } = pendingConfirmation;
+  pendingConfirmation = null;
+  resolve(Boolean(confirmed));
 }
 
 async function testProviderConnection(provider) {
@@ -318,7 +370,7 @@ function syncProviderUi() {
     providerCards.get(provider)?.classList.toggle("is-active", provider === activeProvider);
     const label = providerLabels.get(provider);
     if (label) {
-      label.textContent = provider === activeProvider ? "Active" : "Select";
+      label.textContent = provider === activeProvider ? "Active" : "Use";
     }
   }
 
