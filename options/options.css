@@ -4,12 +4,44 @@
   --panel-bg: #ffffff;
   --panel-border: #e3e6eb;
   --panel-border-strong: #cfd6e2;
+  --card-bg: #fbfcfd;
+  --card-bg-active: #ffffff;
+  --control-bg: #ffffff;
+  --control-border: #d7dbe2;
+  --control-border-strong: #c5ccd7;
+  --danger-border: #e3c2c2;
   --text: #0d1623;
   --muted: #707680;
   --accent: #0867e2;
   --accent-soft: rgba(8, 103, 226, 0.08);
   --accent-strong: #0657bf;
   --danger: #c14141;
+  --success: #1ea85d;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M3.25 5.25 7 9l3.75-3.75' fill='none' stroke='%23656b75' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.6'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page-bg: #272727;
+    --panel-bg: #2d2d2d;
+    --panel-border: #3d3d3d;
+    --panel-border-strong: #4a4a4a;
+    --card-bg: #323232;
+    --card-bg-active: #2e2e2e;
+    --control-bg: #2b2b2b;
+    --control-border: #505050;
+    --control-border-strong: #636363;
+    --danger-border: #7a4545;
+    --text: #f2f3f5;
+    --muted: #b0b4bc;
+    --accent: #6da3ff;
+    --accent-soft: rgba(109, 163, 255, 0.14);
+    --accent-strong: #8cb6ff;
+    --danger: #ef7d7d;
+    --success: #35c96f;
+    --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M3.25 5.25 7 9l3.75-3.75' fill='none' stroke='%23c4c9d1' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.6'/%3E%3C/svg%3E");
+  }
 }
 
 * {
@@ -106,9 +138,9 @@ body {
   justify-content: center;
   min-width: 118px;
   padding: 8px 12px;
-  border: 1px solid #d7dbe2;
+  border: 1px solid var(--control-border);
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--control-bg);
   color: var(--text);
   font: 600 13px/1.2 -apple-system, system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
   cursor: pointer;
@@ -132,12 +164,12 @@ body {
   padding: 16px;
   border: 1px solid var(--panel-border);
   border-radius: 6px;
-  background: #fbfcfd;
+  background: var(--card-bg);
 }
 
 .provider-card.is-active {
   border-color: var(--accent);
-  background: #ffffff;
+  background: var(--card-bg-active);
   box-shadow: inset 0 0 0 1px var(--accent-soft);
 }
 
@@ -198,9 +230,9 @@ button {
 input,
 textarea {
   width: 100%;
-  border: 1px solid #d7dbe2;
+  border: 1px solid var(--control-border);
   border-radius: 4px;
-  background: #ffffff;
+  background: var(--control-bg);
   color: var(--text);
   padding: 10px 12px;
 }
@@ -208,10 +240,10 @@ textarea {
 select {
   width: 100%;
   appearance: none;
-  border: 1px solid #d7dbe2;
+  border: 1px solid var(--control-border);
   border-radius: 4px;
-  background-color: #ffffff;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Cpath d='M3.25 5.25 7 9l3.75-3.75' fill='none' stroke='%23656b75' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.6'/%3E%3C/svg%3E");
+  background-color: var(--control-bg);
+  background-image: var(--select-chevron);
   background-position: right 12px center;
   background-repeat: no-repeat;
   background-size: 14px 14px;
@@ -264,7 +296,7 @@ input[type="checkbox"] {
 }
 
 .test-indicator.is-success {
-  color: #1ea85d;
+  color: var(--success);
 }
 
 .test-indicator.is-error {
@@ -285,14 +317,14 @@ button:disabled {
 }
 
 .secondary {
-  background: #ffffff;
-  border-color: #d7dbe2;
+  background: var(--control-bg);
+  border-color: var(--control-border);
   color: var(--text);
   font-weight: 600;
 }
 
 .danger {
-  border-color: #e3c2c2;
+  border-color: var(--danger-border);
   color: var(--danger);
 }
 
