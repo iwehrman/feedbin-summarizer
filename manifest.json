@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Feedbin Summarizer",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Adds an LLM-powered summary button to Feedbin's article toolbar.",
   "icons": {
     "16": "assets/toolbar-icon-16.png",
