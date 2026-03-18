@@ -45,10 +45,12 @@ import {
   saveProviderApiKey
 } from "./secret-manager.js";
 import {
+  createHttpError,
   createTimeoutSignal,
   isAbortError,
   sanitizeErrorMessage,
-  throwIfAborted
+  throwIfAborted,
+  withSingleRetry
 } from "./security.js";
 
 const OFFSCREEN_DOCUMENT_PATH = "offscreen/offscreen.html";
@@ -583,24 +585,30 @@ async function fetchReadableSourceArticle(sourceUrl, signal) {
     throw new Error("Only HTTP and HTTPS source URLs can be fetched.");
   }
 
-  const response = await fetch(url.href, {
-    signal: createTimeoutSignal(signal, SOURCE_FETCH_TIMEOUT_MS),
-    redirect: "follow",
-    headers: {
-      Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
+  const { response, html } = await withSingleRetry(async () => {
+    const response = await fetch(url.href, {
+      signal: createTimeoutSignal(signal, SOURCE_FETCH_TIMEOUT_MS),
+      redirect: "follow",
+      headers: {
+        Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1"
+      }
+    });
+
+    if (!response.ok) {
+      throw createHttpError(`The source page returned ${response.status} ${response.statusText}.`, response.status);
     }
-  });
 
-  if (!response.ok) {
-    throw new Error(`The source page returned ${response.status} ${response.statusText}.`);
-  }
+    const contentType = response.headers.get("content-type") || "";
+    if (!/text\/html|application\/xhtml\+xml/i.test(contentType)) {
+      throw new Error(`The source page returned ${contentType || "a non-HTML response"}, so it could not be extracted.`);
+    }
 
-  const contentType = response.headers.get("content-type") || "";
-  if (!/text\/html|application\/xhtml\+xml/i.test(contentType)) {
-    throw new Error(`The source page returned ${contentType || "a non-HTML response"}, so it could not be extracted.`);
-  }
+    return {
+      response,
+      html: await response.text()
+    };
+  }, { signal });
 
-  const html = await response.text();
   throwIfAborted(signal);
 
   const extracted = await extractReadableArticle({

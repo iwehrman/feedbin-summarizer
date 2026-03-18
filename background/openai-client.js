@@ -4,42 +4,46 @@ import {
   OPENAI_RESPONSES_URL
 } from "../shared/defaults.js";
 import {
+  createHttpError,
   createTimeoutSignal,
-  sanitizeErrorMessage
+  sanitizeErrorMessage,
+  withSingleRetry
 } from "./security.js";
 
 export async function summarizeWithOpenAI(openAIConfig, input, signal) {
   validateOpenAIEndpoint();
 
-  // Authorization headers are constructed only in the service worker.
-  const response = await fetch(OPENAI_RESPONSES_URL, {
-    method: "POST",
-    signal: createTimeoutSignal(signal, OPENAI_REQUEST_TIMEOUT_MS),
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${openAIConfig.apiKey}`
-    },
-    body: JSON.stringify({
-      store: false,
-      model: openAIConfig.model,
-      instructions: input.systemPrompt,
-      input: input.prompt,
-      reasoning: openAIConfig.reasoningEffort ? { effort: openAIConfig.reasoningEffort } : undefined,
-      text: openAIConfig.verbosity ? { verbosity: openAIConfig.verbosity } : undefined
-    })
-  });
+  return withSingleRetry(async () => {
+    // Authorization headers are constructed only in the service worker.
+    const response = await fetch(OPENAI_RESPONSES_URL, {
+      method: "POST",
+      signal: createTimeoutSignal(signal, OPENAI_REQUEST_TIMEOUT_MS),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openAIConfig.apiKey}`
+      },
+      body: JSON.stringify({
+        store: false,
+        model: openAIConfig.model,
+        instructions: input.systemPrompt,
+        input: input.prompt,
+        reasoning: openAIConfig.reasoningEffort ? { effort: openAIConfig.reasoningEffort } : undefined,
+        text: openAIConfig.verbosity ? { verbosity: openAIConfig.verbosity } : undefined
+      })
+    });
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(getApiErrorMessage(payload, "OpenAI request failed."));
-  }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw createHttpError(getApiErrorMessage(payload, "OpenAI request failed."), response.status);
+    }
 
-  const text = extractResponseText(payload);
-  if (typeof text !== "string" || !text.trim()) {
-    throw new Error(buildMissingOutputError(payload, openAIConfig.model));
-  }
+    const text = extractResponseText(payload);
+    if (typeof text !== "string" || !text.trim()) {
+      throw new Error(buildMissingOutputError(payload, openAIConfig.model));
+    }
 
-  return text.trim();
+    return text.trim();
+  }, { signal });
 }
 
 export function extractResponseText(payload) {

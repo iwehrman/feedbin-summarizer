@@ -129,3 +129,54 @@ test("summarizeWithOpenAI sanitizes API errors", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("summarizeWithOpenAI retries once for retryable API failures", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+
+  globalThis.fetch = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return {
+        ok: false,
+        status: 429,
+        async json() {
+          return {
+            error: {
+              message: "Rate limited"
+            }
+          };
+        }
+      };
+    }
+
+    return {
+      ok: true,
+      async json() {
+        return {
+          output_text: "Retried summary."
+        };
+      }
+    };
+  };
+
+  try {
+    const summary = await summarizeWithOpenAI(
+      {
+        apiKey: "sk-secret_123456789",
+        model: "gpt-5.4-mini",
+        reasoningEffort: "none",
+        verbosity: "low"
+      },
+      {
+        systemPrompt: "Return plain text only.",
+        prompt: "Body"
+      }
+    );
+
+    assert.equal(summary, "Retried summary.");
+    assert.equal(attempts, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

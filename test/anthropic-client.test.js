@@ -102,3 +102,55 @@ test("summarizeWithAnthropic sanitizes API errors", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("summarizeWithAnthropic retries once for retryable API failures", async () => {
+  const originalFetch = globalThis.fetch;
+  let attempts = 0;
+
+  globalThis.fetch = async () => {
+    attempts += 1;
+    if (attempts === 1) {
+      return {
+        ok: false,
+        status: 503,
+        async json() {
+          return {
+            error: {
+              message: "Service unavailable"
+            }
+          };
+        }
+      };
+    }
+
+    return {
+      ok: true,
+      async json() {
+        return {
+          content: [
+            { type: "text", text: "Retried anthropic summary." }
+          ]
+        };
+      }
+    };
+  };
+
+  try {
+    const summary = await summarizeWithAnthropic(
+      {
+        apiKey: "sk-ant-api03-abcdef",
+        model: "claude-haiku-4-5",
+        maxOutputTokens: 2048
+      },
+      {
+        systemPrompt: "Return plain text only.",
+        prompt: "Body"
+      }
+    );
+
+    assert.equal(summary, "Retried anthropic summary.");
+    assert.equal(attempts, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

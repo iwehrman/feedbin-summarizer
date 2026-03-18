@@ -32,8 +32,8 @@ export const ANTHROPIC_API_VERSION = "2023-06-01";
 export const MAX_SUMMARY_CACHE_ENTRIES = 150;
 export const SUMMARY_CACHE_TTL_DAYS = 7;
 export const SOURCE_FETCH_TIMEOUT_MS = 15000;
-export const OPENAI_REQUEST_TIMEOUT_MS = 30000;
-export const ANTHROPIC_REQUEST_TIMEOUT_MS = 30000;
+export const OPENAI_REQUEST_TIMEOUT_MS = 45000;
+export const ANTHROPIC_REQUEST_TIMEOUT_MS = 45000;
 export const ANTHROPIC_MAX_OUTPUT_TOKENS = 2048;
 
 export const PROVIDERS = Object.freeze(["openai", "anthropic"]);

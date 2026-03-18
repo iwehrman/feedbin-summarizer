@@ -6,46 +6,50 @@ import {
   ANTHROPIC_REQUEST_TIMEOUT_MS
 } from "../shared/defaults.js";
 import {
+  createHttpError,
   createTimeoutSignal,
-  sanitizeErrorMessage
+  sanitizeErrorMessage,
+  withSingleRetry
 } from "./security.js";
 
 export async function summarizeWithAnthropic(anthropicConfig, input, signal) {
   validateAnthropicEndpoint();
 
-  const response = await fetch(ANTHROPIC_MESSAGES_URL, {
-    method: "POST",
-    signal: createTimeoutSignal(signal, ANTHROPIC_REQUEST_TIMEOUT_MS),
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": anthropicConfig.apiKey,
-      "anthropic-version": ANTHROPIC_API_VERSION,
-      "anthropic-dangerous-direct-browser-access": "true"
-    },
-    body: JSON.stringify({
-      model: anthropicConfig.model,
-      max_tokens: anthropicConfig.maxOutputTokens || ANTHROPIC_MAX_OUTPUT_TOKENS,
-      system: input.systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: input.prompt
-        }
-      ]
-    })
-  });
+  return withSingleRetry(async () => {
+    const response = await fetch(ANTHROPIC_MESSAGES_URL, {
+      method: "POST",
+      signal: createTimeoutSignal(signal, ANTHROPIC_REQUEST_TIMEOUT_MS),
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": anthropicConfig.apiKey,
+        "anthropic-version": ANTHROPIC_API_VERSION,
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: anthropicConfig.model,
+        max_tokens: anthropicConfig.maxOutputTokens || ANTHROPIC_MAX_OUTPUT_TOKENS,
+        system: input.systemPrompt,
+        messages: [
+          {
+            role: "user",
+            content: input.prompt
+          }
+        ]
+      })
+    });
 
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(getAnthropicApiErrorMessage(payload, "Anthropic request failed."));
-  }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw createHttpError(getAnthropicApiErrorMessage(payload, "Anthropic request failed."), response.status);
+    }
 
-  const text = extractAnthropicResponseText(payload);
-  if (!text) {
-    throw new Error("Anthropic returned no summary text.");
-  }
+    const text = extractAnthropicResponseText(payload);
+    if (!text) {
+      throw new Error("Anthropic returned no summary text.");
+    }
 
-  return text;
+    return text;
+  }, { signal });
 }
 
 export function extractAnthropicResponseText(payload) {
