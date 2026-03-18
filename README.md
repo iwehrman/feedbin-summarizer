@@ -40,9 +40,9 @@ If you leave summary mode enabled for a feed, future articles from that feed can
 - `OpenAI API key` / `Anthropic API key`
   Stores the selected provider keys locally inside the extension.
 - `OpenAI model`
-  Defaults to `gpt-5-nano`, with `gpt-5-mini` and `gpt-5` as the other built-in choices.
+  Defaults to `gpt-5.4-nano`, with `gpt-5.4-mini` and `gpt-5.4` as the other built-in choices.
 - `Reasoning effort`
-  OpenAI-only. Useful mainly for GPT-5-family models.
+  OpenAI-only. For the current GPT-5.4 models, the built-in choices are `none`, `low`, `medium`, `high`, and `xhigh`.
 - `Verbosity`
   OpenAI-only. Lets you bias toward shorter or fuller responses.
 - `Anthropic model`

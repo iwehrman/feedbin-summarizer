@@ -1,7 +1,7 @@
 export const DEFAULT_SETTINGS = Object.freeze({
   provider: "openai",
-  openaiModel: "gpt-5-nano",
-  openaiReasoningEffort: "minimal",
+  openaiModel: "gpt-5.4-nano",
+  openaiReasoningEffort: "none",
   openaiVerbosity: "low",
   anthropicModel: "claude-haiku-4-5",
   summaryCacheEnabled: true,
@@ -38,9 +38,9 @@ export const ANTHROPIC_MAX_OUTPUT_TOKENS = 2048;
 
 export const PROVIDERS = Object.freeze(["openai", "anthropic"]);
 export const OPENAI_MODEL_OPTIONS = Object.freeze([
-  "gpt-5-nano",
-  "gpt-5-mini",
-  "gpt-5"
+  "gpt-5.4-nano",
+  "gpt-5.4-mini",
+  "gpt-5.4"
 ]);
 export const ANTHROPIC_MODEL_OPTIONS = Object.freeze([
   "claude-haiku-4-5",

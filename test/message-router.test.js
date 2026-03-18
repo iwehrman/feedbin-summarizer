@@ -26,8 +26,8 @@ test("options page can update settings without exposing secrets", () => {
       type: "updateOptionsSettings",
       payload: {
         provider: "anthropic",
-        openaiModel: "gpt-5-nano",
-        openaiReasoningEffort: "minimal",
+        openaiModel: "gpt-5.4-nano",
+        openaiReasoningEffort: "none",
         openaiVerbosity: "low",
         anthropicModel: "claude-haiku-4-5",
         summaryCacheEnabled: false,
@@ -41,8 +41,8 @@ test("options page can update settings without exposing secrets", () => {
   assert.equal(request.type, "updateOptionsSettings");
   assert.deepEqual(request.payload, {
     provider: "anthropic",
-    openaiModel: "gpt-5-nano",
-    openaiReasoningEffort: "minimal",
+    openaiModel: "gpt-5.4-nano",
+    openaiReasoningEffort: "none",
     openaiVerbosity: "low",
     anthropicModel: "claude-haiku-4-5",
     summaryCacheEnabled: false,

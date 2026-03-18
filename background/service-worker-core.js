@@ -1,21 +1,39 @@
 import {
+  ANTHROPIC_MODEL_OPTIONS,
   DEFAULT_SETTINGS,
   MAX_SUMMARY_CACHE_ENTRIES,
+  OPENAI_MODEL_OPTIONS,
   PROVIDERS
 } from "../shared/defaults.js";
 
-export const OPENAI_REASONING_EFFORT_VALUES = ["", "minimal", "low", "medium", "high"];
+export const OPENAI_REASONING_EFFORT_VALUES = ["", "none", "low", "medium", "high", "xhigh"];
 export const OPENAI_VERBOSITY_VALUES = ["", "low", "medium", "high"];
 const MIN_COMPLETE_VISIBLE_ARTICLE_CHARS = 1800;
 const MIN_COMPLETE_VISIBLE_ARTICLE_WORDS = 260;
+const LEGACY_OPENAI_MODEL_MAP = Object.freeze({
+  "gpt-5-nano": "gpt-5.4-nano",
+  "gpt-5-mini": "gpt-5.4-mini",
+  "gpt-5": "gpt-5.4"
+});
+const LEGACY_OPENAI_REASONING_EFFORT_MAP = Object.freeze({
+  minimal: "none"
+});
 
 export function normalizeSettings(rawSettings) {
   return {
     provider: normalizeChoice(rawSettings?.provider, PROVIDERS, DEFAULT_SETTINGS.provider),
-    openaiModel: normalizeString(rawSettings?.openaiModel, DEFAULT_SETTINGS.openaiModel, 120),
-    openaiReasoningEffort: normalizeChoice(rawSettings?.openaiReasoningEffort, OPENAI_REASONING_EFFORT_VALUES, DEFAULT_SETTINGS.openaiReasoningEffort),
+    openaiModel: normalizeChoice(
+      migrateOpenAIModel(rawSettings?.openaiModel),
+      OPENAI_MODEL_OPTIONS,
+      DEFAULT_SETTINGS.openaiModel
+    ),
+    openaiReasoningEffort: normalizeChoice(
+      migrateOpenAIReasoningEffort(rawSettings?.openaiReasoningEffort),
+      OPENAI_REASONING_EFFORT_VALUES,
+      DEFAULT_SETTINGS.openaiReasoningEffort
+    ),
     openaiVerbosity: normalizeChoice(rawSettings?.openaiVerbosity, OPENAI_VERBOSITY_VALUES, DEFAULT_SETTINGS.openaiVerbosity),
-    anthropicModel: normalizeString(rawSettings?.anthropicModel, DEFAULT_SETTINGS.anthropicModel, 120),
+    anthropicModel: normalizeChoice(rawSettings?.anthropicModel, ANTHROPIC_MODEL_OPTIONS, DEFAULT_SETTINGS.anthropicModel),
     summaryCacheEnabled: typeof rawSettings?.summaryCacheEnabled === "boolean" ? rawSettings.summaryCacheEnabled : DEFAULT_SETTINGS.summaryCacheEnabled,
     prefetchDebugVisualizationEnabled: typeof rawSettings?.prefetchDebugVisualizationEnabled === "boolean"
       ? rawSettings.prefetchDebugVisualizationEnabled
@@ -107,15 +125,33 @@ export function getActiveProviderCacheConfig(settings) {
   const provider = normalizeChoice(settings?.provider, PROVIDERS, DEFAULT_SETTINGS.provider);
   if (provider === "anthropic") {
     return {
-      model: normalizeString(settings?.anthropicModel, DEFAULT_SETTINGS.anthropicModel, 120)
+      model: normalizeChoice(settings?.anthropicModel, ANTHROPIC_MODEL_OPTIONS, DEFAULT_SETTINGS.anthropicModel)
     };
   }
 
   return {
-    model: settings?.openaiModel || DEFAULT_SETTINGS.openaiModel,
-    reasoningEffort: normalizeChoice(settings?.openaiReasoningEffort, OPENAI_REASONING_EFFORT_VALUES, ""),
+    model: normalizeChoice(
+      migrateOpenAIModel(settings?.openaiModel),
+      OPENAI_MODEL_OPTIONS,
+      DEFAULT_SETTINGS.openaiModel
+    ),
+    reasoningEffort: normalizeChoice(
+      migrateOpenAIReasoningEffort(settings?.openaiReasoningEffort),
+      OPENAI_REASONING_EFFORT_VALUES,
+      DEFAULT_SETTINGS.openaiReasoningEffort
+    ),
     verbosity: normalizeChoice(settings?.openaiVerbosity, OPENAI_VERBOSITY_VALUES, "")
   };
+}
+
+export function migrateOpenAIModel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return LEGACY_OPENAI_MODEL_MAP[normalized] || normalized;
+}
+
+export function migrateOpenAIReasoningEffort(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return LEGACY_OPENAI_REASONING_EFFORT_MAP[normalized] || normalized;
 }
 
 export async function buildSummaryCacheKey(parts) {

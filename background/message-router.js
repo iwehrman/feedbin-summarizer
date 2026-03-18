@@ -78,7 +78,7 @@ function validateSettingsPayload(payload) {
   return {
     provider: optionalChoice(source.provider, PROVIDERS),
     openaiModel: optionalString(source.openaiModel, 120),
-    openaiReasoningEffort: optionalChoice(source.openaiReasoningEffort, ["", "minimal", "low", "medium", "high"]),
+    openaiReasoningEffort: optionalChoice(source.openaiReasoningEffort, ["", "none", "low", "medium", "high", "xhigh"]),
     openaiVerbosity: optionalChoice(source.openaiVerbosity, ["", "low", "medium", "high"]),
     anthropicModel: optionalString(source.anthropicModel, 120),
     summaryCacheEnabled: typeof source.summaryCacheEnabled === "boolean" ? source.summaryCacheEnabled : true,

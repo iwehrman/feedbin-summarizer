@@ -17,7 +17,7 @@ test("normalizeSettings applies defaults and sanitizes values", () => {
   const settings = normalizeSettings({
     provider: "ANTHROPIC",
     openaiModel: "  gpt-5-nano  ",
-    openaiReasoningEffort: "INVALID",
+    openaiReasoningEffort: "minimal",
     openaiVerbosity: "HIGH",
     anthropicModel: " claude-haiku-4-5 ",
     summaryCacheEnabled: false,
@@ -26,8 +26,8 @@ test("normalizeSettings applies defaults and sanitizes values", () => {
 
   assert.deepEqual(settings, {
     provider: "anthropic",
-    openaiModel: "gpt-5-nano",
-    openaiReasoningEffort: "minimal",
+    openaiModel: "gpt-5.4-nano",
+    openaiReasoningEffort: "none",
     openaiVerbosity: "high",
     anthropicModel: "claude-haiku-4-5",
     summaryCacheEnabled: false,
@@ -36,13 +36,28 @@ test("normalizeSettings applies defaults and sanitizes values", () => {
   });
 });
 
+test("normalizeSettings migrates legacy OpenAI model names and unsupported reasoning effort", () => {
+  const settings = normalizeSettings({
+    provider: "openai",
+    openaiModel: "gpt-5-mini",
+    openaiReasoningEffort: "minimal",
+    openaiVerbosity: "low",
+    anthropicModel: "claude-haiku-4-5",
+    summaryCacheEnabled: true,
+    systemPrompt: "Return plain text."
+  });
+
+  assert.equal(settings.openaiModel, "gpt-5.4-mini");
+  assert.equal(settings.openaiReasoningEffort, "none");
+});
+
 test("didContentInvalidationChange only tracks content-affecting settings", () => {
   assert.equal(
     didContentInvalidationChange(
       {
         provider: "openai",
         openaiModel: "gpt-4.1-mini",
-        openaiReasoningEffort: "minimal",
+        openaiReasoningEffort: "none",
         openaiVerbosity: "low",
         anthropicModel: "claude-haiku-4-5",
         summaryCacheEnabled: true,
@@ -51,7 +66,7 @@ test("didContentInvalidationChange only tracks content-affecting settings", () =
       {
         provider: "openai",
         openaiModel: "gpt-4.1-mini",
-        openaiReasoningEffort: "minimal",
+        openaiReasoningEffort: "none",
         openaiVerbosity: "low",
         anthropicModel: "claude-sonnet-4-6",
         summaryCacheEnabled: true,
@@ -66,7 +81,7 @@ test("didContentInvalidationChange only tracks content-affecting settings", () =
       {
         provider: "openai",
         openaiModel: "gpt-4.1-mini",
-        openaiReasoningEffort: "minimal",
+        openaiReasoningEffort: "none",
         openaiVerbosity: "low",
         anthropicModel: "claude-haiku-4-5",
         summaryCacheEnabled: true,
@@ -74,8 +89,8 @@ test("didContentInvalidationChange only tracks content-affecting settings", () =
       },
       {
         provider: "anthropic",
-        openaiModel: "gpt-5-nano",
-        openaiReasoningEffort: "minimal",
+        openaiModel: "gpt-5.4-nano",
+        openaiReasoningEffort: "none",
         openaiVerbosity: "low",
         anthropicModel: "claude-haiku-4-5",
         summaryCacheEnabled: true,
@@ -126,7 +141,7 @@ test("buildSummaryCacheKeyForPayload is stable and changes when settings change"
   const settings = normalizeSettings({
     provider: "anthropic",
     openaiModel: "gpt-4.1-mini",
-    openaiReasoningEffort: "minimal",
+    openaiReasoningEffort: "none",
     openaiVerbosity: "low",
     anthropicModel: "claude-haiku-4-5",
     summaryCacheEnabled: true,

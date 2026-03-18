@@ -19,13 +19,14 @@ const OPTIONS_HTML = `
       <button type="button" data-provider-action="test" data-provider="openai">Test</button>
       <span id="openai-test-indicator"></span>
       <select name="openaiModel" id="openaiModel">
-        <option value="gpt-5-nano">GPT-5 Nano</option>
-        <option value="gpt-5-mini">GPT-5 Mini</option>
-        <option value="gpt-5">GPT-5</option>
+        <option value="gpt-5.4-nano">GPT-5.4 Nano</option>
+        <option value="gpt-5.4-mini">GPT-5.4 Mini</option>
+        <option value="gpt-5.4">GPT-5.4</option>
       </select>
       <select name="openaiReasoningEffort" id="openaiReasoningEffort">
-        <option value="minimal">Minimal</option>
+        <option value="none">None</option>
         <option value="low">Low</option>
+        <option value="xhigh">XHigh</option>
       </select>
       <select name="openaiVerbosity" id="openaiVerbosity">
         <option value="low">Low</option>
@@ -73,8 +74,8 @@ test("options page never repopulates saved provider keys", async () => {
               result: {
                 settings: {
                   provider: "anthropic",
-                  openaiModel: "gpt-5-nano",
-                  openaiReasoningEffort: "minimal",
+                  openaiModel: "gpt-5.4-nano",
+                  openaiReasoningEffort: "none",
                   openaiVerbosity: "low",
                   anthropicModel: "claude-haiku-4-5",
                   summaryCacheEnabled: true,
@@ -155,7 +156,7 @@ test("options page shows a local checkmark when provider API verification succee
               ok: true,
               result: {
                 provider: "openai",
-                model: "gpt-5-nano",
+                model: "gpt-5.4-nano",
                 summaryText: "A short summary."
               }
             });

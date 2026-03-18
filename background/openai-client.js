@@ -87,7 +87,7 @@ export function buildMissingOutputError(payload, model) {
       details.push(`Reasoning tokens used: ${reasoningTokens}.`);
     }
 
-    details.push("Try minimal reasoning effort or a lower-latency model.");
+    details.push("Try none or low reasoning effort, or a lower-latency model.");
     return details.join(" ");
   }
 

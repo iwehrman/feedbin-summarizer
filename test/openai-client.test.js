@@ -42,10 +42,10 @@ test("buildMissingOutputError explains reasoning-only truncation", () => {
     output: [
       { type: "reasoning" }
     ]
-  }, "gpt-5-nano");
+  }, "gpt-5.4-nano");
 
   assert.match(message, /entire output budget/i);
-  assert.match(message, /gpt-5-nano/i);
+  assert.match(message, /gpt-5\.4-nano/i);
   assert.match(message, /256/);
 });
 
@@ -71,8 +71,8 @@ test("summarizeWithOpenAI builds requests inside the worker and parses output te
     const summary = await summarizeWithOpenAI(
       {
         apiKey: "sk-secret_123456789",
-        model: "gpt-4.1-mini",
-        reasoningEffort: "minimal",
+        model: "gpt-5.4-mini",
+        reasoningEffort: "none",
         verbosity: "low"
       },
       {
@@ -87,9 +87,9 @@ test("summarizeWithOpenAI builds requests inside the worker and parses output te
     assert.equal(capturedOptions.headers.Authorization, "Bearer sk-secret_123456789");
 
     const body = JSON.parse(capturedOptions.body);
-    assert.equal(body.model, "gpt-4.1-mini");
+    assert.equal(body.model, "gpt-5.4-mini");
     assert.equal(body.instructions, "Return plain text only.");
-    assert.deepEqual(body.reasoning, { effort: "minimal" });
+    assert.deepEqual(body.reasoning, { effort: "none" });
     assert.deepEqual(body.text, { verbosity: "low" });
   } finally {
     globalThis.fetch = originalFetch;
@@ -114,7 +114,7 @@ test("summarizeWithOpenAI sanitizes API errors", async () => {
       summarizeWithOpenAI(
         {
           apiKey: "sk-secret_123456789",
-          model: "gpt-4.1-mini",
+          model: "gpt-5.4-mini",
           reasoningEffort: "",
           verbosity: ""
         },
