@@ -1,6 +1,6 @@
 export const DEFAULT_SETTINGS = Object.freeze({
   provider: "openai",
-  openaiModel: "gpt-5.4-nano",
+  openaiModel: "gpt-5.4-mini",
   openaiReasoningEffort: "none",
   openaiVerbosity: "low",
   anthropicModel: "claude-haiku-4-5",
