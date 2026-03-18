@@ -30,6 +30,7 @@
     refreshTimer: null,
     summaryFeedPreferences: {},
     preferencesLoaded: false,
+    summaryCacheEnabled: true,
     prefetchDebugVisualizationEnabled: false,
     lastViewedEntryId: "",
     lastAutoAttemptEntryId: "",
@@ -341,7 +342,7 @@
         }
       }
 
-      storePrefetchedSummary(context.entryId, response.result.summaryText, context.feedId);
+      rememberSummaryResult(context.entryId, response.result.summaryText, context.feedId);
       renderSummary(latestContext, response.result.summaryText, summaryState);
     } catch (error) {
       clearPendingPrefetchedSwap();
@@ -527,6 +528,10 @@
 
     if (state.activeSummary === summary) {
       state.activeSummary = null;
+    }
+
+    if (!state.summaryCacheEnabled) {
+      clearEphemeralSummaryState(summary.entryId);
     }
   }
 
@@ -858,12 +863,14 @@
         type: "getFeedbinState"
       });
       state.summaryFeedPreferences = normalizeFeedPreferences(response.result.summaryFeedPreferences);
+      state.summaryCacheEnabled = response.result.summaryCacheEnabled !== false;
       state.prefetchDebugVisualizationEnabled = Boolean(response.result.prefetchDebugVisualizationEnabled);
       state.preferencesLoaded = true;
       scheduleRefresh();
     } catch (error) {
       console.warn("Feedbin Summarizer: failed to load feed preferences.", error);
       state.summaryFeedPreferences = {};
+      state.summaryCacheEnabled = true;
       state.prefetchDebugVisualizationEnabled = false;
       state.preferencesLoaded = true;
     }
@@ -981,6 +988,11 @@
   }
 
   function managePrefetchQueue(context) {
+    if (!state.summaryCacheEnabled) {
+      cancelPrefetchQueue();
+      return;
+    }
+
     const selectedFeedId = getSelectedFeedId();
     if (!selectedFeedId) {
       cancelPrefetchQueue();
@@ -1082,6 +1094,11 @@
   }
 
   function manageUnreadFeedPrefetch(context) {
+    if (!state.summaryCacheEnabled) {
+      cancelUnreadFeedPrefetchQueue();
+      return;
+    }
+
     if (!state.preferencesLoaded) {
       return;
     }
@@ -1242,7 +1259,7 @@
           }
         });
         if (response.result.summaryText) {
-          storePrefetchedSummary(candidate.entryId, response.result.summaryText, candidate.feedId);
+          rememberSummaryResult(candidate.entryId, response.result.summaryText, candidate.feedId);
         }
       } catch (error) {
         console.error("Feedbin Summarizer prefetch:", error);
@@ -1289,7 +1306,7 @@
         });
 
         if (response.result.summaryText) {
-          storePrefetchedSummary(candidate.entryId, response.result.summaryText, candidate.feedId);
+          rememberSummaryResult(candidate.entryId, response.result.summaryText, candidate.feedId);
         }
       } catch (error) {
         console.error("Feedbin Summarizer unread prefetch:", error);
@@ -1336,7 +1353,7 @@
         }
 
         for (const cachedSummary of response.result.cachedSummaries || []) {
-          storePrefetchedSummary(
+          rememberSummaryResult(
             cachedSummary.entryId,
             cachedSummary.summaryText,
             candidatesByEntryId.get(cachedSummary.entryId)?.feedId || ""
@@ -1452,7 +1469,21 @@
   }
 
   function getPrefetchedSummary(entryId) {
+    if (!state.summaryCacheEnabled) {
+      return "";
+    }
+
     return state.prefetchedSummaries.get(String(entryId || "")) || "";
+  }
+
+  function rememberSummaryResult(entryId, summaryText, feedId = "") {
+    if (state.summaryCacheEnabled) {
+      storePrefetchedSummary(entryId, summaryText, feedId);
+      return;
+    }
+
+    upsertPrefetchDebugEntry(entryId, feedId, "ready");
+    scheduleDebugRefresh();
   }
 
   function storePrefetchedSummary(entryId, summaryText, feedId = "") {
@@ -1474,6 +1505,21 @@
       state.prefetchedSummaries.delete(oldestEntryId);
     }
 
+    scheduleDebugRefresh();
+  }
+
+  function clearEphemeralSummaryState(entryId) {
+    const normalizedEntryId = String(entryId || "").trim();
+    if (!normalizedEntryId) {
+      return;
+    }
+
+    const debugEntry = state.prefetchDebugEntries.get(normalizedEntryId);
+    if (!debugEntry || debugEntry.status !== "ready") {
+      return;
+    }
+
+    state.prefetchDebugEntries.delete(normalizedEntryId);
     scheduleDebugRefresh();
   }
 
@@ -1770,6 +1816,7 @@
     }
 
     if (message.type === "settingsUpdated") {
+      state.summaryCacheEnabled = message.payload?.summaryCacheEnabled !== false;
       state.prefetchDebugVisualizationEnabled = Boolean(message.payload?.prefetchDebugVisualizationEnabled);
       if (message.payload?.clearPrefetchedSummaries !== false) {
         clearPrefetchedSummaries();

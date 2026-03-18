@@ -141,6 +141,75 @@ test("content script injects the summary button, matches toolbar color, and togg
   });
 });
 
+test("content script fetches a fresh summary after toggling off when cache is disabled", async () => {
+  await withJSDOM(FEEDBIN_FIXTURE, async () => {
+    const sentMessages = [];
+    let summaryRequestCount = 0;
+
+    globalThis.chrome = {
+      runtime: {
+        onMessage: {
+          addListener() {}
+        },
+        sendMessage(message, callback) {
+          sentMessages.push(message);
+
+          setTimeout(() => {
+            if (message.type === "getFeedbinState") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: {},
+                  summaryCacheEnabled: false
+                }
+              });
+              return;
+            }
+
+            if (message.type === "setFeedSummaryPreference") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: message.payload.enabled ? { 42: true } : {}
+                }
+              });
+              return;
+            }
+
+            if (message.type === "summarizeArticle") {
+              summaryRequestCount += 1;
+              callback({
+                ok: true,
+                result: {
+                  summaryText: `Fresh summary ${summaryRequestCount}.`
+                }
+              });
+              return;
+            }
+
+            callback({ ok: true, result: {} });
+          }, 0);
+        }
+      }
+    };
+
+    await importFresh("content/feedbin.js");
+    const button = await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
+    const body = document.querySelector(".content-styles");
+
+    button.click();
+    await waitFor(() => /Fresh summary 1\./.test(body.innerHTML));
+
+    button.click();
+    await waitFor(() => /Original article body/.test(body.innerHTML));
+
+    button.click();
+    await waitFor(() => /Fresh summary 2\./.test(body.innerHTML));
+
+    assert.equal(sentMessages.filter(message => message.type === "summarizeArticle").length, 2);
+  });
+});
+
 test("content script shows minimal prefetch debug dots for enabled feeds and articles", async () => {
   await withJSDOM(FEEDBIN_FIXTURE, async () => {
     globalThis.chrome = {

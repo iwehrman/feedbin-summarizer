@@ -153,6 +153,7 @@ async function handleUpdateOptionsSettings(payload) {
       type: "settingsUpdated",
       payload: {
         clearPrefetchedSummaries: shouldClearContentState,
+        summaryCacheEnabled: nextSettings.summaryCacheEnabled,
         prefetchDebugVisualizationEnabled: nextSettings.prefetchDebugVisualizationEnabled
       }
     });
@@ -363,6 +364,7 @@ async function getFeedbinState() {
 
   return {
     ...normalizeFeedbinState(storedFeedbinState[FEEDBIN_STATE_STORAGE_KEY]),
+    summaryCacheEnabled: Boolean(settings.summaryCacheEnabled),
     prefetchDebugVisualizationEnabled: Boolean(settings.prefetchDebugVisualizationEnabled)
   };
 }
