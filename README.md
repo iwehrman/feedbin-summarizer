@@ -58,8 +58,10 @@ If you leave summary mode enabled for a feed, future articles from that feed can
 
 This extension uses user-supplied OpenAI and/or Anthropic API keys and calls those APIs directly from the extension. Keys are stored locally and are not backed by a separate server. That is convenient for a personal tool, but it is less secure than a backend-based design.
 
-More detail is in [SECURITY.md](/Users/ian/Source/summarize-extension/SECURITY.md).
+The public privacy policy is in [privacy-policy.md](privacy-policy.md).
+
+More detail is in [SECURITY.md](SECURITY.md).
 
 ## For Development
 
-Implementation notes, architecture, test commands, packaging steps, and maintenance guidance live in [AGENTS.md](/Users/ian/Source/summarize-extension/AGENTS.md).
+Implementation notes, architecture, test commands, packaging steps, and maintenance guidance live in [AGENTS.md](AGENTS.md).
