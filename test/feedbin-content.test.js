@@ -62,7 +62,86 @@ const CROSS_FEED_ACTIVE_ARTICLE_FIXTURE = FEEDBIN_FIXTURE
     '<article class="entry-content current" data-feed-id="99">'
   );
 
-test("content script injects the summary button, matches toolbar color, and toggles summary content", async () => {
+const MULTI_FEED_UNREAD_FIXTURE = `
+<!doctype html>
+<html>
+  <body>
+    <nav class="feeds-target feed-list">
+      <li data-feed-id="99">
+        <a class="feed-link selected" data-feed-id="99">
+          <span class="collection-label-wrap" data-feed-id="99">
+            <span class="collection-label renamed" data-feed-id="99">Current Feed</span>
+          </span>
+          <span class="count">1</span>
+        </a>
+      </li>
+      <li data-feed-id="42">
+        <a class="feed-link" data-feed-id="42">
+          <span class="collection-label-wrap" data-feed-id="42">
+            <span class="collection-label renamed" data-feed-id="42">Prefetch Feed</span>
+          </span>
+          <span class="count">6</span>
+        </a>
+      </li>
+    </nav>
+    <ul class="entries-target">
+      <li class="entry-summary unread entry-feed-42" data-entry-id="entry-2" data-feed-id="42">
+        <a class="entry-summary-link" data-url="https://example.com/feed-42-story-1">
+          <span class="title">Feed 42 story 1</span>
+          <span class="summary-inner">Summary 1</span>
+          <span class="time">1m</span>
+        </a>
+      </li>
+      <li class="entry-summary unread entry-feed-42" data-entry-id="entry-3" data-feed-id="42">
+        <a class="entry-summary-link" data-url="https://example.com/feed-42-story-2">
+          <span class="title">Feed 42 story 2</span>
+          <span class="summary-inner">Summary 2</span>
+          <span class="time">2m</span>
+        </a>
+      </li>
+      <li class="entry-summary unread entry-feed-42" data-entry-id="entry-4" data-feed-id="42">
+        <a class="entry-summary-link" data-url="https://example.com/feed-42-story-3">
+          <span class="title">Feed 42 story 3</span>
+          <span class="summary-inner">Summary 3</span>
+          <span class="time">3m</span>
+        </a>
+      </li>
+      <li class="entry-summary unread entry-feed-42" data-entry-id="entry-5" data-feed-id="42">
+        <a class="entry-summary-link" data-url="https://example.com/feed-42-story-4">
+          <span class="title">Feed 42 story 4</span>
+          <span class="summary-inner">Summary 4</span>
+          <span class="time">4m</span>
+        </a>
+      </li>
+    </ul>
+    <div class="entry-wrapper entry-feed-99" data-entry-id="entry-1" data-feed-id="99">
+      <div class="entry-toolbar">
+        <div class="entry-buttons">
+          <div class="entry-button-wrap">
+            <button type="button" class="entry-button" style="color: rgb(24, 31, 42);">Native</button>
+          </div>
+          <form data-behavior="toggle_extract" data-entry-id="entry-1">
+            <div class="entry-button-wrap">
+              <button type="button" class="entry-button">Extract</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <article class="entry-content current" data-feed-id="99">
+        <header class="entry-header">
+          <h1>Current Article</h1>
+        </header>
+        <a id="source_link" href="https://example.com/current-story">Source</a>
+        <div class="content-styles">
+          <p>Current article body.</p>
+        </div>
+      </article>
+    </div>
+  </body>
+</html>
+`;
+
+test("content script injects the summary button, matches toolbar color, expands with More, and toggles summary content", async () => {
   await withJSDOM(FEEDBIN_FIXTURE, async () => {
     const sentMessages = [];
     const runtimeListeners = [];
@@ -93,6 +172,16 @@ test("content script injects the summary button, matches toolbar color, and togg
                 ok: true,
                 result: {
                   summaryFeedPreferences: message.payload.enabled ? { 42: true } : {}
+                }
+              });
+              return;
+            }
+
+            if (message.type === "summarizeArticle" && message.payload.summaryMode === "expanded") {
+              callback({
+                ok: true,
+                result: {
+                  summaryText: "Extra detail paragraph.\\n\\nAdditional implication paragraph."
                 }
               });
               return;
@@ -130,8 +219,29 @@ test("content script injects the summary button, matches toolbar color, and togg
 
     assert.match(body.innerHTML, /<p>Short summary paragraph\.<\/p>/);
     assert.match(body.innerHTML, /<p>Second paragraph\.<\/p>/);
+    const moreLink = body.querySelector(".feedbin-summarizer-more-link");
+    assert.ok(moreLink);
+    assert.match(moreLink.textContent || "", /More/);
     assert.equal(button.classList.contains("is-active"), true);
     assert.ok(sentMessages.some(message => message.type === "summarizeArticle"));
+
+    moreLink.click();
+    await waitFor(() => /Extra detail paragraph/.test(body.innerHTML));
+
+    assert.match(body.innerHTML, /Short summary paragraph/);
+    assert.match(body.innerHTML, /Second paragraph/);
+    assert.match(body.innerHTML, /Extra detail paragraph/);
+    assert.match(body.innerHTML, /Additional implication paragraph/);
+    assert.equal(body.querySelector(".feedbin-summarizer-more-link"), null);
+    assert.ok(
+      sentMessages.some(
+        message =>
+          message.type === "summarizeArticle" &&
+          message.payload.summaryMode === "expanded" &&
+          /Short summary paragraph\./.test(message.payload.existingSummaryText) &&
+          /Second paragraph\./.test(message.payload.existingSummaryText)
+      )
+    );
 
     button.click();
     await waitFor(() => /Original article body/.test(body.innerHTML));
@@ -706,5 +816,68 @@ test("marking a prefetched article as read cancels its in-flight prefetch reques
     row.classList.add("read");
 
     await waitFor(() => sentMessages.some(message => message.type === "cancelPrefetch"));
+  });
+});
+
+test("unopened summary-enabled feeds prefetch the first three visible unread articles", async () => {
+  await withJSDOM(MULTI_FEED_UNREAD_FIXTURE, async () => {
+    const sentMessages = [];
+
+    globalThis.chrome = {
+      runtime: {
+        onMessage: {
+          addListener() {}
+        },
+        sendMessage(message, callback) {
+          sentMessages.push(message);
+
+          setTimeout(() => {
+            if (message.type === "getFeedbinState") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: { 42: true }
+                }
+              });
+              return;
+            }
+
+            if (message.type === "checkCachedSummaries") {
+              callback({
+                ok: true,
+                result: {
+                  cachedEntryIds: [],
+                  cachedSummaries: []
+                }
+              });
+              return;
+            }
+
+            if (message.type === "prefetchArticle") {
+              callback({
+                ok: true,
+                result: {
+                  summaryText: `Prefetched ${message.payload.entryId}`
+                }
+              });
+              return;
+            }
+
+            callback({ ok: true, result: {} });
+          }, 0);
+        }
+      }
+    };
+
+    await importFresh("content/feedbin.js");
+
+    await waitFor(() => sentMessages.filter(message => message.type === "prefetchArticle").length >= 3);
+
+    const prefetchedEntryIds = sentMessages
+      .filter(message => message.type === "prefetchArticle")
+      .map(message => message.payload.entryId);
+
+    assert.deepEqual(prefetchedEntryIds.slice(0, 3), ["entry-2", "entry-3", "entry-4"]);
+    assert.equal(prefetchedEntryIds.includes("entry-5"), false);
   });
 });

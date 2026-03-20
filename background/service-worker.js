@@ -466,7 +466,9 @@ async function runSummaryPipeline(payload, settings, options = {}) {
       prompt: buildSummaryPrompt({
         title: payload.title,
         sourceUrl: payload.sourceUrl,
-        articleText
+        articleText,
+        summaryMode: payload.summaryMode,
+        existingSummaryText: payload.existingSummaryText
       })
     },
     signal

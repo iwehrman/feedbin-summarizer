@@ -8,7 +8,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   prefetchDebugVisualizationEnabled: false,
   systemPrompt: [
     "Write short, direct, neutral paragraphs.",
-    "Capture the main point, the key facts or arguments, and why the piece matters.",
+    "Capture the main point and the key facts or arguments.",
     "Prioritize concrete details and implications.",
     "Skip filler, repetition, and minor examples.",
     "Return plain text only. No sections, headers, bullets, or lists. No markdown."

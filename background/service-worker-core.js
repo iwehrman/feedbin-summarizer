@@ -6,8 +6,8 @@ import {
   PROVIDERS
 } from "../shared/defaults.js";
 
-export const OPENAI_REASONING_EFFORT_VALUES = ["", "none", "low", "medium", "high", "xhigh"];
-export const OPENAI_VERBOSITY_VALUES = ["", "low", "medium", "high"];
+export const OPENAI_REASONING_EFFORT_VALUES = ["none", "low", "medium", "high", "xhigh"];
+export const OPENAI_VERBOSITY_VALUES = ["low", "medium", "high"];
 const MIN_COMPLETE_VISIBLE_ARTICLE_CHARS = 1800;
 const MIN_COMPLETE_VISIBLE_ARTICLE_WORDS = 260;
 const LEGACY_OPENAI_MODEL_MAP = Object.freeze({
@@ -18,6 +18,7 @@ const LEGACY_OPENAI_MODEL_MAP = Object.freeze({
 const LEGACY_OPENAI_REASONING_EFFORT_MAP = Object.freeze({
   minimal: "none"
 });
+const SUMMARY_MODE_VALUES = Object.freeze(["standard", "expanded"]);
 
 export function normalizeSettings(rawSettings) {
   return {
@@ -82,16 +83,41 @@ export function didContentInvalidationChange(previousSettings, nextSettings) {
   );
 }
 
-export function buildSummaryPrompt({ title, sourceUrl, articleText }) {
-  return [
-    "Task: Summarize this article.",
+export function buildSummaryPrompt({ title, sourceUrl, articleText, summaryMode = "standard", existingSummaryText = "" }) {
+  const normalizedSummaryMode = normalizeChoice(summaryMode, SUMMARY_MODE_VALUES, "standard");
+  const promptLines = [];
+
+  if (normalizedSummaryMode === "expanded") {
+    promptLines.push(
+      "Task: Expand on the existing summary of this article.",
+      "Return only additional details that add useful context or substance.",
+      "Do not repeat points already covered in the existing summary."
+    );
+  } else {
+    promptLines.push("Task: Summarize this article.");
+  }
+
+  promptLines.push(
     "",
     `Title: ${title || "Untitled"}`,
-    `Source URL: ${sourceUrl || "Unknown"}`,
+    `Source URL: ${sourceUrl || "Unknown"}`
+  );
+
+  if (normalizedSummaryMode === "expanded") {
+    promptLines.push(
+      "",
+      "Existing summary:",
+      existingSummaryText || "None provided."
+    );
+  }
+
+  promptLines.push(
     "",
     "Article text:",
     articleText
-  ].join("\n");
+  );
+
+  return promptLines.join("\n");
 }
 
 export function buildArticleCacheIdentity(payload) {
@@ -115,6 +141,8 @@ export async function buildSummaryCacheKeyForPayload(payload, settings) {
   const provider = normalizeChoice(settings.provider, PROVIDERS, DEFAULT_SETTINGS.provider);
   return buildSummaryCacheKey({
     articleIdentity: buildArticleCacheIdentity(payload),
+    summaryMode: normalizeChoice(payload.summaryMode, SUMMARY_MODE_VALUES, "standard"),
+    existingSummaryText: normalizeString(payload.existingSummaryText, "", 8000),
     provider,
     providerConfig: getActiveProviderCacheConfig(settings),
     systemPrompt: settings.systemPrompt || DEFAULT_SETTINGS.systemPrompt
@@ -140,7 +168,7 @@ export function getActiveProviderCacheConfig(settings) {
       OPENAI_REASONING_EFFORT_VALUES,
       DEFAULT_SETTINGS.openaiReasoningEffort
     ),
-    verbosity: normalizeChoice(settings?.openaiVerbosity, OPENAI_VERBOSITY_VALUES, "")
+    verbosity: normalizeChoice(settings?.openaiVerbosity, OPENAI_VERBOSITY_VALUES, DEFAULT_SETTINGS.openaiVerbosity)
   };
 }
 

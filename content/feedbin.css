@@ -100,6 +100,90 @@
   line-height: 1.35;
 }
 
+.feedbin-summarizer-more-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
+
+.feedbin-summarizer-more-link-adornment {
+  position: relative;
+  display: inline-block;
+  width: 1rem;
+  height: 1em;
+}
+
+.feedbin-summarizer-more-link-chevron,
+.feedbin-summarizer-more-link-spinner {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 140ms ease;
+}
+
+.feedbin-summarizer-more-link-chevron {
+  opacity: 1;
+}
+
+.feedbin-summarizer-more-link-spinner {
+  opacity: 0;
+  gap: 0.04em;
+}
+
+.feedbin-summarizer-more-link:hover,
+.feedbin-summarizer-more-link:active,
+.feedbin-summarizer-more-link:focus,
+.feedbin-summarizer-more-link:focus-visible {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
+
+.feedbin-summarizer-more-link-dot {
+  opacity: 0.18;
+}
+
+.feedbin-summarizer-more-link.is-loading {
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+.feedbin-summarizer-more-link.is-loading .feedbin-summarizer-more-link-chevron {
+  opacity: 0;
+}
+
+.feedbin-summarizer-more-link.is-loading .feedbin-summarizer-more-link-spinner {
+  opacity: 1;
+}
+
+.feedbin-summarizer-more-link.is-loading .feedbin-summarizer-more-link-dot {
+  animation: feedbin-summarizer-more-dot 900ms steps(1, end) infinite;
+}
+
+.feedbin-summarizer-more-link.is-loading .feedbin-summarizer-more-link-dot:nth-child(2) {
+  animation-delay: 180ms;
+}
+
+.feedbin-summarizer-more-link.is-loading .feedbin-summarizer-more-link-dot:nth-child(3) {
+  animation-delay: 360ms;
+}
+
+@keyframes feedbin-summarizer-more-dot {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
 html.feedbin-summarizer-preparing-swap .entry-content.current .content-styles {
   visibility: hidden;
 }

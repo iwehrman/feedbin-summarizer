@@ -113,7 +113,9 @@ test("content scripts can only submit validated article data", () => {
         title: "An article",
         sourceUrl: "https://example.com/article",
         articleText: "Full article text",
-        preferVisibleArticleText: true
+        preferVisibleArticleText: true,
+        summaryMode: "expanded",
+        existingSummaryText: "Short first summary."
       }
     },
     contentSender
@@ -122,6 +124,8 @@ test("content scripts can only submit validated article data", () => {
   assert.equal(request.type, "summarizeArticle");
   assert.equal(request.payload.entryId, "123");
   assert.equal(request.payload.preferVisibleArticleText, true);
+  assert.equal(request.payload.summaryMode, "expanded");
+  assert.equal(request.payload.existingSummaryText, "Short first summary.");
 });
 
 test("content scripts may submit a source URL even when visible article text is empty", () => {

@@ -266,8 +266,8 @@ function readNonSecretSettings() {
   return {
     provider: normalizeProvider(data.get("provider")) || SETTINGS_DEFAULTS.provider,
     openaiModel: String(data.get("openaiModel") || SETTINGS_DEFAULTS.openaiModel).trim(),
-    openaiReasoningEffort: String(data.get("openaiReasoningEffort") || "").trim(),
-    openaiVerbosity: String(data.get("openaiVerbosity") || "").trim(),
+    openaiReasoningEffort: String(data.get("openaiReasoningEffort") || SETTINGS_DEFAULTS.openaiReasoningEffort).trim(),
+    openaiVerbosity: String(data.get("openaiVerbosity") || SETTINGS_DEFAULTS.openaiVerbosity).trim(),
     anthropicModel: String(data.get("anthropicModel") || SETTINGS_DEFAULTS.anthropicModel).trim(),
     summaryCacheEnabled: data.get("summaryCacheEnabled") === "on",
     prefetchDebugVisualizationEnabled: data.get("prefetchDebugVisualizationEnabled") === "on",

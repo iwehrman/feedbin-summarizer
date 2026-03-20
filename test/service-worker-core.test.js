@@ -51,6 +51,21 @@ test("normalizeSettings migrates legacy OpenAI model names and unsupported reaso
   assert.equal(settings.openaiReasoningEffort, "none");
 });
 
+test("normalizeSettings rewrites blank OpenAI reasoning and verbosity to current defaults", () => {
+  const settings = normalizeSettings({
+    provider: "openai",
+    openaiModel: "gpt-5.4-mini",
+    openaiReasoningEffort: "",
+    openaiVerbosity: "",
+    anthropicModel: "claude-haiku-4-5",
+    summaryCacheEnabled: true,
+    systemPrompt: "Return plain text."
+  });
+
+  assert.equal(settings.openaiReasoningEffort, "none");
+  assert.equal(settings.openaiVerbosity, "low");
+});
+
 test("didContentInvalidationChange only tracks content-affecting settings", () => {
   assert.equal(
     didContentInvalidationChange(
@@ -131,6 +146,21 @@ test("buildSummaryPrompt produces the expected prompt envelope", () => {
   );
 });
 
+test("buildSummaryPrompt can request an expanded summary", () => {
+  const prompt = buildSummaryPrompt({
+    title: "An article",
+    sourceUrl: "https://example.com/story",
+    articleText: "Body text",
+    summaryMode: "expanded",
+    existingSummaryText: "Short first summary."
+  });
+
+  assert.equal(
+    prompt,
+    "Task: Expand on the existing summary of this article.\nReturn only additional details that add useful context or substance.\nDo not repeat points already covered in the existing summary.\n\nTitle: An article\nSource URL: https://example.com/story\n\nExisting summary:\nShort first summary.\n\nArticle text:\nBody text"
+  );
+});
+
 test("buildSummaryCacheKeyForPayload is stable and changes when settings change", async () => {
   const payload = {
     entryId: "entry-1",
@@ -154,9 +184,21 @@ test("buildSummaryCacheKeyForPayload is stable and changes when settings change"
     ...settings,
     anthropicModel: "claude-sonnet-4-6"
   });
+  const keyD = await buildSummaryCacheKeyForPayload({
+    ...payload,
+    summaryMode: "expanded",
+    existingSummaryText: "Short first summary."
+  }, settings);
+  const keyE = await buildSummaryCacheKeyForPayload({
+    ...payload,
+    summaryMode: "expanded",
+    existingSummaryText: "Different first summary."
+  }, settings);
 
   assert.equal(keyA, keyB);
   assert.notEqual(keyA, keyC);
+  assert.notEqual(keyA, keyD);
+  assert.notEqual(keyD, keyE);
   assert.match(keyA, /^v3:[a-f0-9]{64}$/);
 });
 

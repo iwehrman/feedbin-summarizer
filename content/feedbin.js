@@ -15,10 +15,14 @@
   const ENTRY_ROW_SELECTOR = `${ENTRY_LIST_SELECTOR} li.entry-summary`;
   const ENTRY_ROW_LINK_SELECTOR = ".entry-summary-link";
   const PREFETCH_LIMIT = 5;
+  const UNREAD_FEED_PREFETCH_LIMIT = 3;
+  const UNREAD_FEED_PREFETCH_TOTAL_LIMIT = 12;
   const PREFETCH_SELECTION_WAIT_MS = 4000;
   const PREFETCHED_SUMMARY_LIMIT = 12;
   const PREPARING_SWAP_CLASS = "feedbin-summarizer-preparing-swap";
   const PREFETCH_DEBUG_DOT_CLASS = "feedbin-summarizer-prefetch-dot";
+  const SUMMARY_MORE_LINK_CLASS = "feedbin-summarizer-more-link";
+  const SUMMARY_MORE_LINK_LABEL = "More";
   const STATUS_NOTICE_CLASS = "feedbin-summarizer-status-notice";
   const STATUS_NOTICE_DURATION_MS = 6000;
   const ACTIVE_ICON_COLOR = "rgb(7, 172, 71)";
@@ -301,13 +305,17 @@
       return false;
     }
 
-    setButtonLoading(button, true);
+    if (options.showToolbarLoading !== false) {
+      setButtonLoading(button, true);
+    }
     const requestId = `${context.entryId}:${Date.now()}`;
     state.pendingRequest = {
       entryId: context.entryId,
       requestId,
       button,
-      startedWithExtract: context.isExtractActive
+      startedWithExtract: context.isExtractActive,
+      summaryMode: options.summaryMode || "standard",
+      usesToolbarLoading: options.showToolbarLoading !== false
     };
 
     try {
@@ -318,7 +326,9 @@
           title: context.title,
           sourceUrl: context.sourceUrl,
           articleText,
-          preferVisibleArticleText: context.isExtractActive
+          preferVisibleArticleText: context.isExtractActive,
+          summaryMode: options.summaryMode || "standard",
+          existingSummaryText: options.existingSummaryText || ""
         }
       });
 
@@ -332,7 +342,7 @@
         return;
       }
 
-      const summaryState = createSummaryState(latestContext);
+      const summaryState = options.summaryState || createSummaryState(latestContext);
 
       if (latestContext.isExtractActive) {
         latestContext = await deactivateExtractForSummary(latestContext, requestId);
@@ -342,9 +352,19 @@
         }
       }
 
-      rememberSummaryResult(context.entryId, response.result.summaryText, context.feedId);
-      renderSummary(latestContext, response.result.summaryText, summaryState);
+      rememberSummaryResult(
+        context.entryId,
+        response.result.summaryText,
+        context.feedId,
+        options.summaryMode || "standard"
+      );
+      renderSummary(latestContext, response.result.summaryText, summaryState, {
+        summaryMode: options.summaryMode || "standard"
+      });
     } catch (error) {
+      if (options.moreLink instanceof HTMLElement) {
+        setMoreLinkLoading(options.moreLink, false);
+      }
       clearPendingPrefetchedSwap();
       showSummaryError(context, error);
       console.error("Feedbin Summarizer:", error);
@@ -503,15 +523,34 @@
       entryId: summaryState.entryId,
       bodyNode: context.bodyNode,
       originalHtml: summaryState.originalHtml,
-      originalText: summaryState.originalText
+      originalText: summaryState.originalText,
+      summaryMode: summaryState.summaryMode || "standard",
+      conciseSummaryText: summaryState.conciseSummaryText || "",
+      expandedSummaryText: summaryState.expandedSummaryText || ""
     };
 
     return state.activeSummary;
   }
 
-  function renderSummary(context, summaryText, summaryState) {
-    activateSummaryState(context, summaryState);
-    context.bodyNode.innerHTML = buildSummaryHtml(summaryText);
+  function renderSummary(context, summaryText, summaryState, options = {}) {
+    const activeSummary = activateSummaryState(context, summaryState);
+    const summaryMode = options.summaryMode || "standard";
+    activeSummary.summaryMode = summaryMode;
+    if (summaryMode === "expanded") {
+      activeSummary.expandedSummaryText = String(summaryText || "").trim();
+      removeMoreLink(context.bodyNode);
+      context.bodyNode.insertAdjacentHTML("beforeend", buildSummaryHtml(summaryText, {
+        showMoreLink: false
+      }));
+    } else {
+      activeSummary.conciseSummaryText = String(summaryText || "").trim();
+      activeSummary.expandedSummaryText = "";
+      context.bodyNode.innerHTML = buildSummaryHtml(summaryText, {
+        showMoreLink: true
+      });
+    }
+
+    bindRenderedSummaryActions(context, activeSummary);
     if (state.pendingPrefetchedEntryId === context.entryId) {
       clearPendingPrefetchedSwap();
     }
@@ -568,7 +607,7 @@
     );
   }
 
-  function buildSummaryHtml(summaryText) {
+  function buildSummaryHtml(summaryText, options = {}) {
     const normalized = decodeEscapedNewlines(String(summaryText || "")).trim();
     if (!normalized) {
       return "<p></p>";
@@ -602,7 +641,79 @@
       htmlParts.push(`<p>${lines.map(escapeHtml).join("<br>")}</p>`);
     }
 
+    if (options.showMoreLink) {
+      htmlParts.push(
+        `<p><a href="#" class="${SUMMARY_MORE_LINK_CLASS}">` +
+          `<span class="${SUMMARY_MORE_LINK_CLASS}-text">${escapeHtml(SUMMARY_MORE_LINK_LABEL)}</span>` +
+          `<span class="${SUMMARY_MORE_LINK_CLASS}-adornment" aria-hidden="true">` +
+            `<span class="${SUMMARY_MORE_LINK_CLASS}-chevron">›</span>` +
+            `<span class="${SUMMARY_MORE_LINK_CLASS}-spinner">` +
+              `<span class="${SUMMARY_MORE_LINK_CLASS}-dot">.</span>` +
+              `<span class="${SUMMARY_MORE_LINK_CLASS}-dot">.</span>` +
+              `<span class="${SUMMARY_MORE_LINK_CLASS}-dot">.</span>` +
+            `</span>` +
+          `</span>` +
+        `</a></p>`
+      );
+    }
+
     return htmlParts.join("");
+  }
+
+  function bindRenderedSummaryActions(context, summaryState) {
+    const moreLink = context.bodyNode.querySelector(`.${SUMMARY_MORE_LINK_CLASS}`);
+    if (!(moreLink instanceof HTMLElement)) {
+      return;
+    }
+
+    moreLink.addEventListener("click", event => {
+      void handleMoreClick(event, summaryState);
+    }, { once: true });
+  }
+
+  async function handleMoreClick(event, summaryState) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const moreLink = event.currentTarget;
+    if (!(moreLink instanceof HTMLElement)) {
+      return;
+    }
+
+    const context = getActiveEntryContext();
+    if (!context || !state.activeSummary || state.activeSummary.entryId !== context.entryId) {
+      return;
+    }
+
+    if (state.pendingRequest && state.pendingRequest.entryId === context.entryId) {
+      return;
+    }
+
+    if (state.activeSummary.summaryMode === "expanded") {
+      return;
+    }
+
+    const summaryButton = document.getElementById(SUMMARY_BUTTON_ID);
+    setMoreLinkLoading(moreLink, true);
+    await triggerSummary(isButtonElement(summaryButton) ? summaryButton : null, context, {
+      prioritizeUserRequest: true,
+      summaryMode: "expanded",
+      summaryState,
+      showToolbarLoading: false,
+      moreLink,
+      existingSummaryText: state.activeSummary.conciseSummaryText || extractArticleText(context.bodyNode)
+    });
+  }
+
+  function setMoreLinkLoading(link, isLoading) {
+    link.classList.toggle("is-loading", isLoading);
+    link.setAttribute("aria-disabled", isLoading ? "true" : "false");
+    if (isLoading) {
+      link.setAttribute("tabindex", "-1");
+      return;
+    }
+
+    link.removeAttribute("tabindex");
   }
 
   function decodeEscapedNewlines(value) {
@@ -666,6 +777,10 @@
   }
 
   function setButtonLoading(button, isLoading) {
+    if (!isButtonElement(button)) {
+      return;
+    }
+
     button.classList.toggle("is-loading", isLoading);
 
     if (isLoading) {
@@ -685,8 +800,25 @@
       return;
     }
 
-    setButtonLoading(state.pendingRequest.button, false);
+    if (state.pendingRequest.usesToolbarLoading !== false) {
+      setButtonLoading(state.pendingRequest.button, false);
+    }
     state.pendingRequest = null;
+  }
+
+  function removeMoreLink(bodyNode) {
+    const moreLink = bodyNode.querySelector(`.${SUMMARY_MORE_LINK_CLASS}`);
+    if (!(moreLink instanceof HTMLElement)) {
+      return;
+    }
+
+    const wrapper = moreLink.closest("p");
+    if (wrapper instanceof HTMLElement) {
+      wrapper.remove();
+      return;
+    }
+
+    moreLink.remove();
   }
 
   async function deactivateExtractForSummary(context, requestId) {
@@ -1130,7 +1262,7 @@
 
   function getUnreadFeedPrefetchCandidates(rows, context, selectedFeedId) {
     const candidates = [];
-    const seenFeedIds = new Set();
+    const feedCandidateCounts = new Map();
 
     for (const row of rows) {
       const candidate = extractPrefetchCandidateFromRow(row);
@@ -1146,7 +1278,8 @@
         continue;
       }
 
-      if (seenFeedIds.has(candidate.feedId)) {
+      const currentFeedCount = feedCandidateCounts.get(candidate.feedId) || 0;
+      if (currentFeedCount >= UNREAD_FEED_PREFETCH_LIMIT) {
         continue;
       }
 
@@ -1166,8 +1299,12 @@
         continue;
       }
 
-      seenFeedIds.add(candidate.feedId);
+      feedCandidateCounts.set(candidate.feedId, currentFeedCount + 1);
       candidates.push(candidate);
+
+      if (candidates.length >= UNREAD_FEED_PREFETCH_TOTAL_LIMIT) {
+        break;
+      }
     }
 
     return candidates;
@@ -1476,8 +1613,8 @@
     return state.prefetchedSummaries.get(String(entryId || "")) || "";
   }
 
-  function rememberSummaryResult(entryId, summaryText, feedId = "") {
-    if (state.summaryCacheEnabled) {
+  function rememberSummaryResult(entryId, summaryText, feedId = "", summaryMode = "standard") {
+    if (summaryMode === "standard" && state.summaryCacheEnabled) {
       storePrefetchedSummary(entryId, summaryText, feedId);
       return;
     }

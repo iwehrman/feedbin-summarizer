@@ -78,8 +78,8 @@ function validateSettingsPayload(payload) {
   return {
     provider: optionalChoice(source.provider, PROVIDERS),
     openaiModel: optionalString(source.openaiModel, 120),
-    openaiReasoningEffort: optionalChoice(source.openaiReasoningEffort, ["", "none", "low", "medium", "high", "xhigh"]),
-    openaiVerbosity: optionalChoice(source.openaiVerbosity, ["", "low", "medium", "high"]),
+    openaiReasoningEffort: optionalChoice(source.openaiReasoningEffort, ["none", "low", "medium", "high", "xhigh"]),
+    openaiVerbosity: optionalChoice(source.openaiVerbosity, ["low", "medium", "high"]),
     anthropicModel: optionalString(source.anthropicModel, 120),
     summaryCacheEnabled: typeof source.summaryCacheEnabled === "boolean" ? source.summaryCacheEnabled : true,
     prefetchDebugVisualizationEnabled: typeof source.prefetchDebugVisualizationEnabled === "boolean"
@@ -121,7 +121,9 @@ function validateArticlePayload(payload) {
     title: optionalString(source.title, 500),
     sourceUrl: optionalString(source.sourceUrl, 2000),
     articleText: optionalString(source.articleText, 60000),
-    preferVisibleArticleText: Boolean(source.preferVisibleArticleText)
+    preferVisibleArticleText: Boolean(source.preferVisibleArticleText),
+    summaryMode: optionalChoice(source.summaryMode, ["", "standard", "expanded"]) || "standard",
+    existingSummaryText: optionalString(source.existingSummaryText, 8000)
   };
 }
 
