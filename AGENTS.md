@@ -52,7 +52,7 @@ More detail is in [SECURITY.md](/Users/ian/Source/summarize-extension/SECURITY.m
 ## Prefetch Behavior
 
 - If summary mode is remembered for a feed, opening articles in that feed can auto-summarize.
-- When a feed is selected in the left pane, the next `5` unread articles in the middle pane are candidates for prefetch.
+- When a summary-enabled feed is selected and its middle-pane rows are visible, the extension tries to keep up to the next `5` unread articles warm.
 - In broader unread/tag views, up to the first `3` visible unread articles for each summary-enabled unopened feed can be prefetched, with a conservative total cap.
 - Prefetch work is skipped when cache is disabled.
 - Optional debug dots:

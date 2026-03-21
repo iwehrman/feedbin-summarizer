@@ -17,7 +17,6 @@
   const PREFETCH_LIMIT = 5;
   const UNREAD_FEED_PREFETCH_LIMIT = 3;
   const UNREAD_FEED_PREFETCH_TOTAL_LIMIT = 12;
-  const PREFETCH_SELECTION_WAIT_MS = 4000;
   const PREFETCHED_SUMMARY_LIMIT = 12;
   const PREPARING_SWAP_CLASS = "feedbin-summarizer-preparing-swap";
   const PREFETCH_DEBUG_DOT_CLASS = "feedbin-summarizer-prefetch-dot";
@@ -39,7 +38,6 @@
     lastViewedEntryId: "",
     lastAutoAttemptEntryId: "",
     suppressExtractPreferenceUpdate: false,
-    pendingFeedSelection: null,
     activePrefetchSignature: "",
     activePrefetchRequestId: "",
     activePrefetchFeedId: "",
@@ -981,11 +979,8 @@
   }
 
   function rememberFeedSelection(feedId) {
+    void feedId;
     cancelPrefetchQueue();
-    state.pendingFeedSelection = {
-      feedId: String(feedId || ""),
-      token: Date.now()
-    };
     scheduleRefresh();
   }
 
@@ -1146,18 +1141,8 @@
       return;
     }
 
-    const pendingSelection = state.pendingFeedSelection;
-    if (!pendingSelection || pendingSelection.feedId !== selectedFeedId) {
-      return;
-    }
-
     const rows = Array.from(document.querySelectorAll(ENTRY_ROW_SELECTOR));
     if (!rows.length) {
-      if (Date.now() - pendingSelection.token > PREFETCH_SELECTION_WAIT_MS) {
-        state.pendingFeedSelection = null;
-        state.activePrefetchSignature = "";
-        state.activePrefetchFeedId = "";
-      }
       return;
     }
 
@@ -1169,7 +1154,6 @@
 
     const signature = `${selectedFeedId}:${candidates.map(candidate => candidate.entryId).join(",")}`;
     if (!candidates.length) {
-      state.pendingFeedSelection = null;
       state.activePrefetchSignature = "";
       state.activePrefetchFeedId = "";
       return;
@@ -1368,9 +1352,6 @@
   async function runPrefetchQueue(feedId, candidates, queueToken) {
     const uncachedCandidates = (await filterCandidatesAgainstCache(candidates, () => shouldContinuePrefetch(feedId, queueToken))).slice(0, PREFETCH_LIMIT);
     if (!uncachedCandidates.length) {
-      if (shouldContinuePrefetch(feedId, queueToken)) {
-        state.pendingFeedSelection = null;
-      }
       return;
     }
 
@@ -1407,10 +1388,6 @@
           state.activePrefetchEntryId = "";
         }
       }
-    }
-
-    if (shouldContinuePrefetch(feedId, queueToken)) {
-      state.pendingFeedSelection = null;
     }
   }
 
@@ -1529,7 +1506,6 @@
     state.prefetchQueueToken += 1;
     state.activePrefetchSignature = "";
     state.activePrefetchFeedId = "";
-    state.pendingFeedSelection = null;
 
     cancelActivePrefetchRequest();
   }

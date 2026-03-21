@@ -204,7 +204,10 @@ test("content script injects the summary button, matches toolbar color, expands 
     };
 
     await importFresh("content/feedbin.js");
-    const button = await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
+    const button = await waitFor(() => {
+      const nextButton = document.getElementById("feedbin-summarizer-toolbar-button");
+      return nextButton?.dataset?.feedbinSummarizerBound === "true" ? nextButton : null;
+    });
     const body = document.querySelector(".content-styles");
 
     assert.ok(button);
@@ -419,7 +422,11 @@ test("content script shows a feed-level prefetch dot once a feed has ready summa
 });
 
 test("content script still requests a summary when the visible article body is empty but a source URL exists", async () => {
-  await withJSDOM(FEEDBIN_FIXTURE.replace("<p>Original article body.</p>", ""), async () => {
+  const emptyBodyFixture = FEEDBIN_FIXTURE
+    .replace(/<ul class="entries-target">[\s\S]*?<\/ul>/, '<ul class="entries-target"></ul>')
+    .replace("<p>Original article body.</p>", "");
+
+  await withJSDOM(emptyBodyFixture, async () => {
     const sentMessages = [];
 
     globalThis.chrome = {
@@ -816,6 +823,66 @@ test("marking a prefetched article as read cancels its in-flight prefetch reques
     row.classList.add("read");
 
     await waitFor(() => sentMessages.some(message => message.type === "cancelPrefetch"));
+  });
+});
+
+test("selected summary-enabled feeds immediately prefetch visible unread articles", async () => {
+  await withJSDOM(FEEDBIN_FIXTURE, async () => {
+    const sentMessages = [];
+
+    globalThis.chrome = {
+      runtime: {
+        onMessage: {
+          addListener() {}
+        },
+        sendMessage(message, callback) {
+          sentMessages.push(message);
+
+          setTimeout(() => {
+            if (message.type === "getFeedbinState") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: { 42: true }
+                }
+              });
+              return;
+            }
+
+            if (message.type === "checkCachedSummaries") {
+              callback({
+                ok: true,
+                result: {
+                  cachedEntryIds: [],
+                  cachedSummaries: []
+                }
+              });
+              return;
+            }
+
+            if (message.type === "prefetchArticle") {
+              callback({
+                ok: true,
+                result: {
+                  summaryText: `Prefetched ${message.payload.entryId}`
+                }
+              });
+              return;
+            }
+
+            callback({ ok: true, result: {} });
+          }, 0);
+        }
+      }
+    };
+
+    await importFresh("content/feedbin.js");
+
+    await waitFor(() => sentMessages.some(message => message.type === "prefetchArticle"));
+
+    const prefetchMessage = sentMessages.find(message => message.type === "prefetchArticle");
+    assert.ok(prefetchMessage);
+    assert.equal(prefetchMessage.payload.entryId, "entry-2");
   });
 });
 
