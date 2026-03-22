@@ -142,7 +142,7 @@ test("buildSummaryPrompt produces the expected prompt envelope", () => {
 
   assert.equal(
     prompt,
-    "Task: Summarize this article.\n\nTitle: An article\nSource URL: https://example.com/story\n\nArticle text:\nBody text"
+    "Task: Summarize this article.\nThe article title is already visible to the reader. Do not restate it unless needed for clarity.\n\nTitle: An article\nSource URL: https://example.com/story\n\nArticle text:\nBody text"
   );
 });
 

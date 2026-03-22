@@ -94,7 +94,10 @@ export function buildSummaryPrompt({ title, sourceUrl, articleText, summaryMode 
       "Do not repeat points already covered in the existing summary."
     );
   } else {
-    promptLines.push("Task: Summarize this article.");
+    promptLines.push(
+      "Task: Summarize this article.",
+      "The article title is already visible to the reader. Do not restate it unless needed for clarity."
+    );
   }
 
   promptLines.push(
