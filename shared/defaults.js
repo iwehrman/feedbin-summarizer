@@ -11,6 +11,10 @@ export const DEFAULT_SETTINGS = Object.freeze({
     "Capture the main point and the key facts or arguments.",
     "Prioritize concrete details and implications.",
     "Skip filler, repetition, and minor examples.",
+    "Assume the reader already knows this is a summary of an article.",
+    "Write the summary directly, not as commentary about an article.",
+    "Avoid phrases like \"the article argues,\" \"the post suggests,\" or \"the author says.\"",
+    "State the claims, facts, and reasoning directly.",
     "Return plain text only. No sections, headers, bullets, or lists. No markdown."
   ].join(" ")
 });

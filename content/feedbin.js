@@ -439,6 +439,7 @@
   function createSummaryState(context) {
     return {
       entryId: context.entryId,
+      feedId: context.feedId,
       originalHtml: context.bodyNode.innerHTML,
       originalText: extractArticleText(context.bodyNode)
     };
@@ -514,11 +515,13 @@
 
     if (state.activeSummary && state.activeSummary.entryId === summaryState.entryId) {
       state.activeSummary.bodyNode = context.bodyNode;
+      state.activeSummary.feedId = summaryState.feedId || context.feedId || state.activeSummary.feedId || "";
       return state.activeSummary;
     }
 
     state.activeSummary = {
       entryId: summaryState.entryId,
+      feedId: summaryState.feedId || context.feedId || "",
       bodyNode: context.bodyNode,
       originalHtml: summaryState.originalHtml,
       originalText: summaryState.originalText,
@@ -1616,6 +1619,10 @@
         break;
       }
       state.prefetchedSummaries.delete(oldestEntryId);
+      const debugEntry = state.prefetchDebugEntries.get(oldestEntryId);
+      if (debugEntry?.status === "ready") {
+        state.prefetchDebugEntries.delete(oldestEntryId);
+      }
     }
 
     scheduleDebugRefresh();
@@ -1728,10 +1735,51 @@
   }
 
   function syncFeedPrefetchIndicators() {
+    const visibleFeedStates = new Map();
+    const visibleFeedCounts = new Map();
+    const memoryFeedStates = new Map();
+    const selectedFeedId = getSelectedFeedId();
+    for (const row of document.querySelectorAll(ENTRY_ROW_SELECTOR)) {
+      const entryId = row.getAttribute("data-entry-id") || "";
+      const feedId = extractFeedId(row, row) || extractRowFeedId(row);
+      if (!entryId || !feedId) {
+        continue;
+      }
+
+      const stateValue = getArticlePrefetchIndicatorState(entryId, feedId, null);
+      if (!stateValue) {
+        continue;
+      }
+
+      visibleFeedCounts.set(feedId, (visibleFeedCounts.get(feedId) || 0) + 1);
+      visibleFeedStates.set(feedId, mergeIndicatorStates(visibleFeedStates.get(feedId) || "", stateValue));
+    }
+
+    for (const [entryId, entry] of state.prefetchDebugEntries.entries()) {
+      if (!entry.feedId) {
+        continue;
+      }
+
+      if (entry.status === "fetching") {
+        memoryFeedStates.set(entry.feedId, mergeIndicatorStates(memoryFeedStates.get(entry.feedId) || "", "fetching"));
+        continue;
+      }
+
+      if (entry.status === "ready" && getPrefetchedSummary(entryId)) {
+        memoryFeedStates.set(entry.feedId, mergeIndicatorStates(memoryFeedStates.get(entry.feedId) || "", "ready"));
+      }
+    }
+
     for (const feedItem of document.querySelectorAll(FEED_ITEM_SELECTOR)) {
       const feedId = feedItem.getAttribute("data-feed-id") || "";
       const target = resolveFeedIndicatorTarget(feedItem);
-      const stateValue = getFeedPrefetchIndicatorState(feedId);
+      const stateValue = getFeedPrefetchIndicatorState(
+        feedId,
+        visibleFeedStates,
+        visibleFeedCounts,
+        memoryFeedStates,
+        selectedFeedId
+      );
       removeExtraFeedDots(feedItem, target);
       if (!stateValue) {
         removeDotFromTarget(target);
@@ -1758,7 +1806,7 @@
       return "fetching";
     }
 
-    if (debugEntry?.status === "ready" || getPrefetchedSummary(entryId)) {
+    if (getPrefetchedSummary(entryId)) {
       return "ready";
     }
 
@@ -1773,27 +1821,45 @@
     return "eligible";
   }
 
-  function getFeedPrefetchIndicatorState(feedId) {
+  function getFeedPrefetchIndicatorState(feedId, visibleFeedStates, visibleFeedCounts, memoryFeedStates, selectedFeedId) {
     if (!feedId || !state.summaryFeedPreferences[feedId]) {
       return "";
     }
 
-    let hasReady = false;
-    for (const entry of state.prefetchDebugEntries.values()) {
-      if (entry.feedId !== feedId) {
-        continue;
-      }
+    const hasVisibleRows = (visibleFeedCounts.get(feedId) || 0) > 0;
+    let stateValue =
+      feedId === selectedFeedId && hasVisibleRows
+        ? visibleFeedStates.get(feedId) || ""
+        : mergeIndicatorStates(memoryFeedStates.get(feedId) || "", visibleFeedStates.get(feedId) || "");
 
-      if (entry.status === "fetching") {
-        return "fetching";
-      }
-
-      if (entry.status === "ready") {
-        hasReady = true;
-      }
+    if (state.pendingRequest && state.pendingRequest.feedId === feedId) {
+      stateValue = mergeIndicatorStates(stateValue, "fetching");
     }
 
-    return hasReady ? "ready" : "eligible";
+    if (state.activeSummary && state.activeSummary.feedId === feedId) {
+      stateValue = mergeIndicatorStates(stateValue, "ready");
+    }
+
+    return stateValue || "eligible";
+  }
+
+  function mergeIndicatorStates(currentState, nextState) {
+    const currentPriority = getIndicatorPriority(currentState);
+    const nextPriority = getIndicatorPriority(nextState);
+    return nextPriority > currentPriority ? nextState : currentState;
+  }
+
+  function getIndicatorPriority(stateValue) {
+    switch (stateValue) {
+      case "fetching":
+        return 3;
+      case "ready":
+        return 2;
+      case "eligible":
+        return 1;
+      default:
+        return 0;
+    }
   }
 
   function resolveFeedIndicatorTarget(feedItem) {

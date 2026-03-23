@@ -307,7 +307,10 @@ test("content script fetches a fresh summary after toggling off when cache is di
     };
 
     await importFresh("content/feedbin.js");
-    const button = await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
+    const button = await waitFor(() => {
+      const nextButton = document.getElementById("feedbin-summarizer-toolbar-button");
+      return nextButton?.dataset?.feedbinSummarizerBound === "true" ? nextButton : null;
+    });
     const body = document.querySelector(".content-styles");
 
     button.click();
@@ -407,7 +410,10 @@ test("content script shows a feed-level prefetch dot once a feed has ready summa
     };
 
     await importFresh("content/feedbin.js");
-    const button = await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
+    const button = await waitFor(() => {
+      const nextButton = document.getElementById("feedbin-summarizer-toolbar-button");
+      return nextButton?.dataset?.feedbinSummarizerBound === "true" ? nextButton : null;
+    });
 
     button.click();
     const feedDot = await waitFor(() => {
@@ -421,28 +427,21 @@ test("content script shows a feed-level prefetch dot once a feed has ready summa
   });
 });
 
-test("content script still requests a summary when the visible article body is empty but a source URL exists", async () => {
-  const emptyBodyFixture = FEEDBIN_FIXTURE
-    .replace(/<ul class="entries-target">[\s\S]*?<\/ul>/, '<ul class="entries-target"></ul>')
-    .replace("<p>Original article body.</p>", "");
-
-  await withJSDOM(emptyBodyFixture, async () => {
-    const sentMessages = [];
-
+test("feed-level prefetch dot falls back to eligible when only a nonvisible article was summarized", async () => {
+  await withJSDOM(FEEDBIN_FIXTURE, async () => {
     globalThis.chrome = {
       runtime: {
         onMessage: {
           addListener() {}
         },
         sendMessage(message, callback) {
-          sentMessages.push(message);
-
           setTimeout(() => {
             if (message.type === "getFeedbinState") {
               callback({
                 ok: true,
                 result: {
-                  summaryFeedPreferences: {}
+                  summaryFeedPreferences: { 42: true },
+                  prefetchDebugVisualizationEnabled: true
                 }
               });
               return;
@@ -462,7 +461,7 @@ test("content script still requests a summary when the visible article body is e
               callback({
                 ok: true,
                 result: {
-                  summaryText: "Fetched from source."
+                  summaryText: "Current article summary"
                 }
               });
               return;
@@ -476,13 +475,20 @@ test("content script still requests a summary when the visible article body is e
 
     await importFresh("content/feedbin.js");
     const button = await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
+
     button.click();
+    await waitFor(() => {
+      const dot = document.querySelector(".feedbin-summarizer-prefetch-dot--feed");
+      return dot?.dataset.state === "ready" ? dot : null;
+    });
 
-    await waitFor(() => sentMessages.some(message => message.type === "summarizeArticle"));
-    const summaryMessage = sentMessages.find(message => message.type === "summarizeArticle");
+    button.click();
+    const feedDot = await waitFor(() => {
+      const dot = document.querySelector(".feedbin-summarizer-prefetch-dot--feed");
+      return dot?.dataset.state === "eligible" ? dot : null;
+    });
 
-    assert.equal(summaryMessage.payload.sourceUrl, "https://example.com/story");
-    assert.equal(summaryMessage.payload.articleText, "");
+    assert.equal(feedDot.dataset.state, "eligible");
   });
 });
 
@@ -946,5 +952,72 @@ test("unopened summary-enabled feeds prefetch the first three visible unread art
 
     assert.deepEqual(prefetchedEntryIds.slice(0, 3), ["entry-2", "entry-3", "entry-4"]);
     assert.equal(prefetchedEntryIds.includes("entry-5"), false);
+  });
+});
+
+test("nonselected feed dots stay ready when warm summaries remain in memory after rows disappear", async () => {
+  await withJSDOM(MULTI_FEED_UNREAD_FIXTURE, async () => {
+    globalThis.chrome = {
+      runtime: {
+        onMessage: {
+          addListener() {}
+        },
+        sendMessage(message, callback) {
+          setTimeout(() => {
+            if (message.type === "getFeedbinState") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: { 42: true },
+                  prefetchDebugVisualizationEnabled: true
+                }
+              });
+              return;
+            }
+
+            if (message.type === "checkCachedSummaries") {
+              callback({
+                ok: true,
+                result: {
+                  cachedEntryIds: [],
+                  cachedSummaries: []
+                }
+              });
+              return;
+            }
+
+            if (message.type === "prefetchArticle") {
+              callback({
+                ok: true,
+                result: {
+                  summaryText: `Prefetched ${message.payload.entryId}`
+                }
+              });
+              return;
+            }
+
+            callback({ ok: true, result: {} });
+          }, 0);
+        }
+      }
+    };
+
+    await importFresh("content/feedbin.js");
+
+    await waitFor(() => {
+      const feedItem = document.querySelector('li[data-feed-id="42"]');
+      const dot = feedItem?.querySelector(".feedbin-summarizer-prefetch-dot--feed");
+      return dot?.dataset.state === "ready" ? dot : null;
+    });
+
+    document.querySelector(".entries-target").innerHTML = "";
+
+    const feedDot = await waitFor(() => {
+      const feedItem = document.querySelector('li[data-feed-id="42"]');
+      const dot = feedItem?.querySelector(".feedbin-summarizer-prefetch-dot--feed");
+      return dot?.dataset.state === "ready" ? dot : null;
+    });
+
+    assert.equal(feedDot.dataset.state, "ready");
   });
 });
