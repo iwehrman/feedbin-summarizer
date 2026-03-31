@@ -199,6 +199,7 @@ html.feedbin-summarizer-preparing-swap .entry-content.current .content-styles {
   vertical-align: middle;
   background: rgba(148, 148, 148, 0.9);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+  transition: background-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
 }
 
 .feedbin-summarizer-prefetch-dot[data-state="fetching"] {

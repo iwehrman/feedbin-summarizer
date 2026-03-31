@@ -51,7 +51,8 @@
     prefetchDebugEntries: new Map(),
     pendingPrefetchedEntryId: "",
     pendingPrefetchedSwapTimer: null,
-    statusNoticeTimer: null
+    statusNoticeTimer: null,
+    prefetchDotRemovalTimers: new Map()
   };
 
   boot();
@@ -1791,6 +1792,7 @@
   }
 
   function removePrefetchDebugIndicators() {
+    clearAllDotRemovalTimers();
     for (const dot of document.querySelectorAll(`.${PREFETCH_DEBUG_DOT_CLASS}`)) {
       dot.remove();
     }
@@ -1932,6 +1934,7 @@
       dot.setAttribute("aria-hidden", "true");
       target.append(dot);
     }
+    cancelDotRemoval(dot);
 
     if (dot.dataset.state !== stateValue) {
       dot.dataset.state = stateValue;
@@ -1948,7 +1951,12 @@
       return;
     }
 
-    target.querySelector(`:scope > .${PREFETCH_DEBUG_DOT_CLASS}`)?.remove();
+    const dot = target.querySelector(`:scope > .${PREFETCH_DEBUG_DOT_CLASS}`);
+    if (!dot) {
+      return;
+    }
+
+    scheduleDotRemoval(dot);
   }
 
   function removeExtraFeedDots(feedItem, target) {
@@ -1963,6 +1971,42 @@
 
       dot.remove();
     }
+  }
+
+  function scheduleDotRemoval(dot) {
+    if (!(dot instanceof HTMLElement)) {
+      return;
+    }
+
+    cancelDotRemoval(dot);
+    const timer = window.setTimeout(() => {
+      if (state.prefetchDotRemovalTimers.get(dot) !== timer) {
+        return;
+      }
+
+      state.prefetchDotRemovalTimers.delete(dot);
+      dot.remove();
+    }, 120);
+
+    state.prefetchDotRemovalTimers.set(dot, timer);
+  }
+
+  function cancelDotRemoval(dot) {
+    const timer = state.prefetchDotRemovalTimers.get(dot);
+    if (!timer) {
+      return;
+    }
+
+    window.clearTimeout(timer);
+    state.prefetchDotRemovalTimers.delete(dot);
+  }
+
+  function clearAllDotRemovalTimers() {
+    for (const timer of state.prefetchDotRemovalTimers.values()) {
+      window.clearTimeout(timer);
+    }
+
+    state.prefetchDotRemovalTimers.clear();
   }
 
   function getPrefetchDebugLabel(stateValue) {

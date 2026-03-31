@@ -1,6 +1,6 @@
 {
   "name": "feedbin-summarizer",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "A Manifest V3 Chrome extension that adds a `Summary` button to Feedbin's article toolbar and replaces the article body with an LLM-generated summary.",
   "main": "index.js",
   "scripts": {
