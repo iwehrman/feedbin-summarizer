@@ -62,6 +62,33 @@ const CROSS_FEED_ACTIVE_ARTICLE_FIXTURE = FEEDBIN_FIXTURE
     '<article class="entry-content current" data-feed-id="99">'
   );
 
+const SELECTED_FEED_MULTI_ENTRY_FIXTURE = FEEDBIN_FIXTURE.replace(
+  '<ul class="entries-target">\n      <li class="entry-summary unread entry-feed-42" data-entry-id="entry-2" data-feed-id="42">\n        <a class="entry-summary-link" data-url="https://example.com/another-story">\n          <span class="title">Another story</span>\n          <span class="time">2h</span>\n        </a>\n      </li>\n    </ul>',
+  `<ul class="entries-target">
+      <li class="entry-summary unread entry-feed-42" data-entry-id="entry-2" data-feed-id="42">
+        <a class="entry-summary-link" data-url="https://example.com/another-story">
+          <span class="title">Another story</span>
+          <span class="summary-inner">Summary 2</span>
+          <span class="time">2h</span>
+        </a>
+      </li>
+      <li class="entry-summary unread entry-feed-42" data-entry-id="entry-3" data-feed-id="42">
+        <a class="entry-summary-link" data-url="https://example.com/third-story">
+          <span class="title">Third story</span>
+          <span class="summary-inner">Summary 3</span>
+          <span class="time">3h</span>
+        </a>
+      </li>
+      <li class="entry-summary unread entry-feed-42" data-entry-id="entry-4" data-feed-id="42">
+        <a class="entry-summary-link" data-url="https://example.com/fourth-story">
+          <span class="title">Fourth story</span>
+          <span class="summary-inner">Summary 4</span>
+          <span class="time">4h</span>
+        </a>
+      </li>
+    </ul>`
+);
+
 const MULTI_FEED_UNREAD_FIXTURE = `
 <!doctype html>
 <html>
@@ -832,9 +859,10 @@ test("marking a prefetched article as read cancels its in-flight prefetch reques
   });
 });
 
-test("selected summary-enabled feeds immediately prefetch visible unread articles", async () => {
-  await withJSDOM(FEEDBIN_FIXTURE, async () => {
+test("selected summary-enabled feeds immediately prefetch visible unread articles with concurrency", async () => {
+  await withJSDOM(SELECTED_FEED_MULTI_ENTRY_FIXTURE, async () => {
     const sentMessages = [];
+    const pendingPrefetchCallbacks = [];
 
     globalThis.chrome = {
       runtime: {
@@ -867,11 +895,13 @@ test("selected summary-enabled feeds immediately prefetch visible unread article
             }
 
             if (message.type === "prefetchArticle") {
-              callback({
-                ok: true,
-                result: {
-                  summaryText: `Prefetched ${message.payload.entryId}`
-                }
+              pendingPrefetchCallbacks.push(() => {
+                callback({
+                  ok: true,
+                  result: {
+                    summaryText: `Prefetched ${message.payload.entryId}`
+                  }
+                });
               });
               return;
             }
@@ -884,17 +914,29 @@ test("selected summary-enabled feeds immediately prefetch visible unread article
 
     await importFresh("content/feedbin.js");
 
-    await waitFor(() => sentMessages.some(message => message.type === "prefetchArticle"));
+    await waitFor(() => sentMessages.filter(message => message.type === "prefetchArticle").length >= 2);
 
-    const prefetchMessage = sentMessages.find(message => message.type === "prefetchArticle");
-    assert.ok(prefetchMessage);
-    assert.equal(prefetchMessage.payload.entryId, "entry-2");
+    const initialPrefetchEntryIds = sentMessages
+      .filter(message => message.type === "prefetchArticle")
+      .slice(0, 2)
+      .map(message => message.payload.entryId);
+    assert.deepEqual(initialPrefetchEntryIds, ["entry-2", "entry-3"]);
+
+    while (pendingPrefetchCallbacks.length) {
+      pendingPrefetchCallbacks.shift()();
+    }
+
+    await waitFor(() => sentMessages.filter(message => message.type === "prefetchArticle").length >= 3);
+    while (pendingPrefetchCallbacks.length) {
+      pendingPrefetchCallbacks.shift()();
+    }
   });
 });
 
-test("unopened summary-enabled feeds prefetch the first three visible unread articles", async () => {
+test("unopened summary-enabled feeds prefetch the first three visible unread articles with concurrency", async () => {
   await withJSDOM(MULTI_FEED_UNREAD_FIXTURE, async () => {
     const sentMessages = [];
+    const pendingPrefetchCallbacks = [];
 
     globalThis.chrome = {
       runtime: {
@@ -927,11 +969,13 @@ test("unopened summary-enabled feeds prefetch the first three visible unread art
             }
 
             if (message.type === "prefetchArticle") {
-              callback({
-                ok: true,
-                result: {
-                  summaryText: `Prefetched ${message.payload.entryId}`
-                }
+              pendingPrefetchCallbacks.push(() => {
+                callback({
+                  ok: true,
+                  result: {
+                    summaryText: `Prefetched ${message.payload.entryId}`
+                  }
+                });
               });
               return;
             }
@@ -944,7 +988,22 @@ test("unopened summary-enabled feeds prefetch the first three visible unread art
 
     await importFresh("content/feedbin.js");
 
+    await waitFor(() => sentMessages.filter(message => message.type === "prefetchArticle").length >= 2);
+
+    const initialPrefetchEntryIds = sentMessages
+      .filter(message => message.type === "prefetchArticle")
+      .slice(0, 2)
+      .map(message => message.payload.entryId);
+    assert.deepEqual(initialPrefetchEntryIds, ["entry-2", "entry-3"]);
+
+    while (pendingPrefetchCallbacks.length) {
+      pendingPrefetchCallbacks.shift()();
+    }
+
     await waitFor(() => sentMessages.filter(message => message.type === "prefetchArticle").length >= 3);
+    while (pendingPrefetchCallbacks.length) {
+      pendingPrefetchCallbacks.shift()();
+    }
 
     const prefetchedEntryIds = sentMessages
       .filter(message => message.type === "prefetchArticle")

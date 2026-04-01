@@ -15,8 +15,10 @@
   const ENTRY_ROW_SELECTOR = `${ENTRY_LIST_SELECTOR} li.entry-summary`;
   const ENTRY_ROW_LINK_SELECTOR = ".entry-summary-link";
   const PREFETCH_LIMIT = 5;
+  const PREFETCH_CONCURRENCY = 2;
   const UNREAD_FEED_PREFETCH_LIMIT = 3;
   const UNREAD_FEED_PREFETCH_TOTAL_LIMIT = 12;
+  const UNREAD_FEED_PREFETCH_CONCURRENCY = 2;
   const PREFETCHED_SUMMARY_LIMIT = 12;
   const PREPARING_SWAP_CLASS = "feedbin-summarizer-preparing-swap";
   const PREFETCH_DEBUG_DOT_CLASS = "feedbin-summarizer-prefetch-dot";
@@ -39,13 +41,11 @@
     lastAutoAttemptEntryId: "",
     suppressExtractPreferenceUpdate: false,
     activePrefetchSignature: "",
-    activePrefetchRequestId: "",
     activePrefetchFeedId: "",
-    activePrefetchEntryId: "",
+    activePrefetchRequests: new Map(),
     prefetchQueueToken: 0,
     unreadFeedPrefetchSignature: "",
-    unreadFeedPrefetchRequestId: "",
-    unreadFeedPrefetchEntryId: "",
+    unreadFeedPrefetchRequests: new Map(),
     unreadFeedPrefetchToken: 0,
     prefetchedSummaries: new Map(),
     prefetchDebugEntries: new Map(),
@@ -1152,9 +1152,11 @@
 
     const candidates = getPrefetchCandidates(rows, selectedFeedId, context);
     const candidateEntryIds = new Set(candidates.map(candidate => candidate.entryId));
-    if (state.activePrefetchRequestId && state.activePrefetchEntryId && !candidateEntryIds.has(state.activePrefetchEntryId)) {
-      cancelActivePrefetchRequest();
-    }
+    cancelPrefetchRequests(
+      state.activePrefetchRequests,
+      "Feedbin Summarizer prefetch cancel:",
+      entryId => !candidateEntryIds.has(entryId)
+    );
 
     const signature = `${selectedFeedId}:${candidates.map(candidate => candidate.entryId).join(",")}`;
     if (!candidates.length) {
@@ -1359,40 +1361,36 @@
       return;
     }
 
-    for (const candidate of uncachedCandidates) {
-      if (!shouldContinuePrefetch(feedId, queueToken)) {
-        return;
-      }
+    await runConcurrentPrefetchCandidates(
+      uncachedCandidates,
+      PREFETCH_CONCURRENCY,
+      () => shouldContinuePrefetch(feedId, queueToken),
+      async candidate => {
+        const requestId = `prefetch:${feedId}:${candidate.entryId}:${Date.now()}`;
+        markPrefetchFetching(candidate.entryId, candidate.feedId);
+        registerPrefetchRequest(state.activePrefetchRequests, requestId, candidate.entryId);
 
-      const requestId = `prefetch:${feedId}:${candidate.entryId}:${Date.now()}`;
-      state.activePrefetchRequestId = requestId;
-      state.activePrefetchEntryId = candidate.entryId;
-      markPrefetchFetching(candidate.entryId, candidate.feedId);
-
-      try {
-        const response = await sendMessage({
-          type: "prefetchArticle",
-          payload: {
-            requestId,
-            entryId: candidate.entryId,
-            title: candidate.title,
-            sourceUrl: candidate.sourceUrl,
-            articleText: candidate.articleText
+        try {
+          const response = await sendMessage({
+            type: "prefetchArticle",
+            payload: {
+              requestId,
+              entryId: candidate.entryId,
+              title: candidate.title,
+              sourceUrl: candidate.sourceUrl,
+              articleText: candidate.articleText
+            }
+          });
+          if (response.result.summaryText) {
+            rememberSummaryResult(candidate.entryId, response.result.summaryText, candidate.feedId);
           }
-        });
-        if (response.result.summaryText) {
-          rememberSummaryResult(candidate.entryId, response.result.summaryText, candidate.feedId);
-        }
-      } catch (error) {
-        console.error("Feedbin Summarizer prefetch:", error);
-      } finally {
-        clearFetchingPrefetchState(candidate.entryId);
-        if (state.activePrefetchRequestId === requestId) {
-          state.activePrefetchRequestId = "";
-          state.activePrefetchEntryId = "";
+        } catch (error) {
+          console.error("Feedbin Summarizer prefetch:", error);
+        } finally {
+          releasePrefetchRequest(state.activePrefetchRequests, requestId);
         }
       }
-    }
+    );
   }
 
   async function runUnreadFeedPrefetchQueue(candidates, queueToken) {
@@ -1401,41 +1399,59 @@
       return;
     }
 
-    for (const candidate of uncachedCandidates) {
-      if (!shouldContinueUnreadFeedPrefetch(queueToken)) {
-        return;
-      }
+    await runConcurrentPrefetchCandidates(
+      uncachedCandidates,
+      UNREAD_FEED_PREFETCH_CONCURRENCY,
+      () => shouldContinueUnreadFeedPrefetch(queueToken),
+      async candidate => {
+        const requestId = `unread-prefetch:${candidate.feedId}:${candidate.entryId}:${Date.now()}`;
+        markPrefetchFetching(candidate.entryId, candidate.feedId);
+        registerPrefetchRequest(state.unreadFeedPrefetchRequests, requestId, candidate.entryId);
 
-      const requestId = `unread-prefetch:${candidate.feedId}:${candidate.entryId}:${Date.now()}`;
-      state.unreadFeedPrefetchRequestId = requestId;
-      state.unreadFeedPrefetchEntryId = candidate.entryId;
-      markPrefetchFetching(candidate.entryId, candidate.feedId);
+        try {
+          const response = await sendMessage({
+            type: "prefetchArticle",
+            payload: {
+              requestId,
+              entryId: candidate.entryId,
+              title: candidate.title,
+              sourceUrl: candidate.sourceUrl,
+              articleText: candidate.articleText
+            }
+          });
 
-      try {
-        const response = await sendMessage({
-          type: "prefetchArticle",
-          payload: {
-            requestId,
-            entryId: candidate.entryId,
-            title: candidate.title,
-            sourceUrl: candidate.sourceUrl,
-            articleText: candidate.articleText
+          if (response.result.summaryText) {
+            rememberSummaryResult(candidate.entryId, response.result.summaryText, candidate.feedId);
           }
-        });
-
-        if (response.result.summaryText) {
-          rememberSummaryResult(candidate.entryId, response.result.summaryText, candidate.feedId);
-        }
-      } catch (error) {
-        console.error("Feedbin Summarizer unread prefetch:", error);
-      } finally {
-        clearFetchingPrefetchState(candidate.entryId);
-        if (state.unreadFeedPrefetchRequestId === requestId) {
-          state.unreadFeedPrefetchRequestId = "";
-          state.unreadFeedPrefetchEntryId = "";
+        } catch (error) {
+          console.error("Feedbin Summarizer unread prefetch:", error);
+        } finally {
+          releasePrefetchRequest(state.unreadFeedPrefetchRequests, requestId);
         }
       }
+    );
+  }
+
+  async function runConcurrentPrefetchCandidates(candidates, concurrency, shouldContinue, runCandidate) {
+    let nextIndex = 0;
+    const workerCount = Math.min(concurrency, candidates.length);
+    const workers = [];
+
+    for (let index = 0; index < workerCount; index += 1) {
+      workers.push((async () => {
+        while (shouldContinue()) {
+          const candidate = candidates[nextIndex];
+          nextIndex += 1;
+          if (!candidate) {
+            return;
+          }
+
+          await runCandidate(candidate);
+        }
+      })());
     }
+
+    await Promise.all(workers);
   }
 
   async function filterCandidatesAgainstCache(candidates, shouldContinue) {
@@ -1511,50 +1527,62 @@
     state.activePrefetchSignature = "";
     state.activePrefetchFeedId = "";
 
-    cancelActivePrefetchRequest();
+    cancelPrefetchRequests(state.activePrefetchRequests, "Feedbin Summarizer prefetch cancel:");
   }
 
   function cancelUnreadFeedPrefetchQueue() {
     state.unreadFeedPrefetchToken += 1;
     state.unreadFeedPrefetchSignature = "";
 
-    cancelActiveUnreadFeedPrefetchRequest();
+    cancelPrefetchRequests(state.unreadFeedPrefetchRequests, "Feedbin Summarizer unread prefetch cancel:");
   }
 
-  function cancelActivePrefetchRequest() {
-    if (!state.activePrefetchRequestId) {
-      return;
-    }
-
-    const requestId = state.activePrefetchRequestId;
-    const entryId = state.activePrefetchEntryId;
-    state.activePrefetchRequestId = "";
-    state.activePrefetchEntryId = "";
-    clearFetchingPrefetchState(entryId);
-    void sendMessage({
-      type: "cancelPrefetch",
-      payload: { requestId }
-    }).catch(error => {
-      console.error("Feedbin Summarizer prefetch cancel:", error);
-    });
+  function registerPrefetchRequest(requestMap, requestId, entryId) {
+    requestMap.set(requestId, entryId);
   }
 
-  function cancelActiveUnreadFeedPrefetchRequest() {
-    if (!state.unreadFeedPrefetchRequestId) {
-      return;
+  function releasePrefetchRequest(requestMap, requestId) {
+    const entryId = requestMap.get(requestId) || "";
+    requestMap.delete(requestId);
+    if (entryId && !hasAnyActivePrefetchForEntry(entryId)) {
+      clearFetchingPrefetchState(entryId);
+    }
+  }
+
+  function hasAnyActivePrefetchForEntry(entryId) {
+    for (const activeEntryId of state.activePrefetchRequests.values()) {
+      if (activeEntryId === entryId) {
+        return true;
+      }
     }
 
-    const requestId = state.unreadFeedPrefetchRequestId;
-    const entryId = state.unreadFeedPrefetchEntryId;
-    state.unreadFeedPrefetchRequestId = "";
-    state.unreadFeedPrefetchEntryId = "";
-    clearFetchingPrefetchState(entryId);
-    void sendMessage({
-      type: "cancelPrefetch",
-      payload: { requestId }
-    }).catch(error => {
-      console.error("Feedbin Summarizer unread prefetch cancel:", error);
-    });
+    for (const activeEntryId of state.unreadFeedPrefetchRequests.values()) {
+      if (activeEntryId === entryId) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function cancelPrefetchRequests(requestMap, errorPrefix, shouldCancel = () => true) {
+    for (const [requestId, entryId] of Array.from(requestMap.entries())) {
+      if (!shouldCancel(entryId, requestId)) {
+        continue;
+      }
+
+      requestMap.delete(requestId);
+      if (entryId && !hasAnyActivePrefetchForEntry(entryId)) {
+        clearFetchingPrefetchState(entryId);
+      }
+
+      void sendMessage({
+        type: "cancelPrefetch",
+        payload: { requestId }
+      }).catch(error => {
+        console.error(errorPrefix, error);
+      });
+    }
   }
 
   function preparePrefetchedSwap(entryId) {
