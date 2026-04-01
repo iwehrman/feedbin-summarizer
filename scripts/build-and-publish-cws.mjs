@@ -27,41 +27,46 @@ const extensionVersion = manifest.version || "0.0.0";
 const packageBaseName = `feedbin-summarizer-${extensionVersion}`;
 const zipPath = path.join(distDir, `${packageBaseName}.zip`);
 
-await runBuild();
+try {
+  await runBuild();
 
-const env = readRequiredEnv(requiredEnvNames, dotEnvValues);
-const accessToken = await getAccessToken(env);
-const itemName = `publishers/${env.CWS_PUBLISHER_ID}/items/${env.CWS_EXTENSION_ID}`;
+  const env = readRequiredEnv(requiredEnvNames, dotEnvValues);
+  const accessToken = await getAccessToken(env);
+  const itemName = `publishers/${env.CWS_PUBLISHER_ID}/items/${env.CWS_EXTENSION_ID}`;
 
-console.log(`Uploading ${packageBaseName}.zip to the Chrome Web Store...`);
-const uploadResponse = await uploadPackage({
-  accessToken,
-  itemName,
-  zipPath
-});
-const uploadState = await waitForUploadIfNeeded({
-  accessToken,
-  itemName,
-  initialResponse: uploadResponse
-});
+  console.log(`Uploading ${packageBaseName}.zip to the Chrome Web Store...`);
+  const uploadResponse = await uploadPackage({
+    accessToken,
+    itemName,
+    zipPath
+  });
+  const uploadState = await waitForUploadIfNeeded({
+    accessToken,
+    itemName,
+    initialResponse: uploadResponse
+  });
 
-if (uploadState && uploadState !== "SUCCESS") {
-  throw new Error(`Chrome Web Store upload did not succeed. Final uploadState: ${uploadState}`);
+  if (uploadState && uploadState !== "SUCCESS") {
+    throw new Error(`Chrome Web Store upload did not succeed. Final uploadState: ${uploadState}`);
+  }
+
+  console.log("Submitting uploaded package for review...");
+  const publishResponse = await publishItem({ accessToken, itemName });
+  const publishedState = getFirstMatchingValue(publishResponse, [
+    "status",
+    "publishState",
+    "itemState"
+  ]);
+
+  console.log("Chrome Web Store publish request completed.");
+  if (publishedState) {
+    console.log(`Publish state: ${publishedState}`);
+  }
+  console.log(`Extension version ${extensionVersion} is uploaded and submitted.`);
+} catch (error) {
+  reportPublishError(error);
+  process.exitCode = 1;
 }
-
-console.log("Submitting uploaded package for review...");
-const publishResponse = await publishItem({ accessToken, itemName });
-const publishedState = getFirstMatchingValue(publishResponse, [
-  "status",
-  "publishState",
-  "itemState"
-]);
-
-console.log("Chrome Web Store publish request completed.");
-if (publishedState) {
-  console.log(`Publish state: ${publishedState}`);
-}
-console.log(`Extension version ${extensionVersion} is uploaded and submitted.`);
 
 async function runBuild() {
   await new Promise((resolve, reject) => {
@@ -279,6 +284,27 @@ function sleep(ms) {
   return new Promise(resolve => {
     setTimeout(resolve, ms);
   });
+}
+
+function reportPublishError(error) {
+  const message = error?.message || String(error);
+
+  if (isItemInReviewError(message)) {
+    console.error("");
+    console.error("Chrome Web Store refused the upload because this item already has a version pending review.");
+    console.error("Wait for the current review to finish before running `npm run build:publish` again.");
+    console.error("If you really need to replace the pending submission, cancel the review in the dashboard first.");
+    console.error("");
+    console.error(`Original API error: ${message}`);
+    return;
+  }
+
+  console.error(error);
+}
+
+function isItemInReviewError(message) {
+  const normalized = String(message).toLowerCase();
+  return normalized.includes("may not edit or publish an item that is in review");
 }
 
 async function loadDotEnv(targetPath) {
