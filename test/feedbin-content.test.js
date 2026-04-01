@@ -582,6 +582,99 @@ test("content script retries auto-summary once source metadata arrives", async (
   });
 });
 
+test("prefetched swap stays armed until the target cached article becomes current", async () => {
+  await withJSDOM(FEEDBIN_FIXTURE, async () => {
+    globalThis.chrome = {
+      runtime: {
+        onMessage: {
+          addListener() {}
+        },
+        sendMessage(message, callback) {
+          setTimeout(() => {
+            if (message.type === "getFeedbinState") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: { 42: true }
+                }
+              });
+              return;
+            }
+
+            if (message.type === "setFeedSummaryPreference") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: { 42: true }
+                }
+              });
+              return;
+            }
+
+            if (message.type === "summarizeArticle") {
+              callback({
+                ok: true,
+                result: {
+                  summaryText: message.payload.entryId === "entry-2" ? "Second article summary" : "First article summary"
+                }
+              });
+              return;
+            }
+
+            callback({ ok: true, result: {} });
+          }, 0);
+        }
+      }
+    };
+
+    await importFresh("content/feedbin.js");
+
+    const button = await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
+    const row = document.querySelector('li.entry-summary[data-entry-id="entry-2"]');
+    const entryWrapper = document.querySelector(".entry-wrapper");
+    const currentEntry = document.querySelector(".entry-content.current");
+    const title = document.querySelector("header.entry-header h1");
+    const sourceLink = document.querySelector("#source_link");
+    const body = document.querySelector(".content-styles");
+
+    entryWrapper.setAttribute("data-entry-id", "entry-2");
+    currentEntry.setAttribute("data-feed-id", "42");
+    title.textContent = "Another story";
+    sourceLink.setAttribute("href", "https://example.com/another-story");
+    body.innerHTML = "<p>Original second article body.</p>";
+    await waitFor(() => button.dataset.entryId === "entry-2");
+
+    button.click();
+    await waitFor(() => /Second article summary/.test(body.innerHTML));
+
+    entryWrapper.setAttribute("data-entry-id", "entry-1");
+    currentEntry.setAttribute("data-feed-id", "42");
+    title.textContent = "Test Article";
+    sourceLink.setAttribute("href", "https://example.com/story");
+    body.innerHTML = "<p>Original article body.</p>";
+    await waitFor(() => button.dataset.entryId === "entry-1");
+
+    button.click();
+    await waitFor(() => /First article summary/.test(body.innerHTML));
+
+    row.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    currentEntry.classList.add("loading-next-entry");
+
+    await waitFor(() => document.documentElement.classList.contains("feedbin-summarizer-preparing-swap"));
+
+    entryWrapper.setAttribute("data-entry-id", "entry-2");
+    currentEntry.classList.remove("loading-next-entry");
+    currentEntry.setAttribute("data-feed-id", "42");
+    title.textContent = "Another story";
+    sourceLink.setAttribute("href", "https://example.com/another-story");
+    body.innerHTML = "<p>Original second article body.</p>";
+
+    await waitFor(() => button.dataset.entryId === "entry-2");
+    await waitFor(() => /Second article summary/.test(body.innerHTML));
+    assert.equal(document.documentElement.classList.contains("feedbin-summarizer-preparing-swap"), false);
+  });
+});
+
 test("content script rebinds a stale existing summary button and keeps it clickable", async () => {
   const staleButtonFixture = FEEDBIN_FIXTURE.replace(
     '<form data-behavior="toggle_extract" data-entry-id="entry-1">',

@@ -133,16 +133,14 @@
       state.lastAutoAttemptEntryId = "";
     }
 
-    if (state.pendingPrefetchedEntryId && state.pendingPrefetchedEntryId !== context.entryId) {
-      clearPendingPrefetchedSwap();
-    }
-
     if (state.pendingRequest && state.pendingRequest.entryId !== context.entryId) {
       clearPendingRequest();
     }
 
     if (state.activeSummary && state.activeSummary.entryId !== context.entryId) {
-      restoreSummary(state.activeSummary);
+      deactivateSummaryState(state.activeSummary, {
+        restoreBody: state.activeSummary.bodyNode !== context.bodyNode
+      });
     }
 
     if (
@@ -511,7 +509,9 @@
 
   function activateSummaryState(context, summaryState = createSummaryState(context)) {
     if (state.activeSummary && state.activeSummary.entryId !== summaryState.entryId) {
-      restoreSummary(state.activeSummary);
+      deactivateSummaryState(state.activeSummary, {
+        restoreBody: state.activeSummary.bodyNode !== context.bodyNode
+      });
     }
 
     if (state.activeSummary && state.activeSummary.entryId === summaryState.entryId) {
@@ -558,12 +558,12 @@
     }
   }
 
-  function restoreSummary(summary) {
+  function deactivateSummaryState(summary, options = {}) {
     if (!summary) {
       return;
     }
 
-    if (summary.bodyNode) {
+    if (options.restoreBody !== false && summary.bodyNode) {
       summary.bodyNode.innerHTML = summary.originalHtml;
     }
 
@@ -574,6 +574,10 @@
     if (!state.summaryCacheEnabled) {
       clearEphemeralSummaryState(summary.entryId);
     }
+  }
+
+  function restoreSummary(summary) {
+    deactivateSummaryState(summary, { restoreBody: true });
   }
 
   function extractArticleText(bodyNode) {
