@@ -100,6 +100,7 @@ No other message types should be supported.
 - `npm run lint`
 - `npm test`
 - `npm run build:package`
+- `npm run build:publish`
 
 The Husky pre-commit hook runs lint and tests automatically.
 
@@ -108,7 +109,16 @@ The Husky pre-commit hook runs lint and tests automatically.
 - Bump the extension version in `manifest.json` before packaging a new build.
 - Build the uploadable zip with `npm run build:package`.
 - Output lands in `dist/feedbin-summarizer-<version>.zip`.
-- Chrome Web Store API automation is still pending. See [TODO.md](/Users/ian/Source/summarize-extension/TODO.md).
+- Upload and submit a package with `npm run build:publish`.
+- `build:publish` rebuilds the zip, uploads it to the Chrome Web Store, waits for upload processing if needed, and then submits it for review.
+- `build:publish` also reads the Chrome Web Store credentials from a repo-root `.env` file if they are not already exported in the shell.
+- `build:publish` expects these environment variables:
+  - `GOOGLE_CLIENT_ID`
+  - `GOOGLE_CLIENT_SECRET`
+  - `CWS_REFRESH_TOKEN`
+  - `CWS_PUBLISHER_ID`
+  - `CWS_EXTENSION_ID`
+- Full setup notes live in [CHROME_WEB_STORE_RELEASE.md](/Users/ian/Source/summarize-extension/CHROME_WEB_STORE_RELEASE.md).
 
 ## Notes For Future Changes
 
