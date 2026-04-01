@@ -46,7 +46,7 @@ try {
     initialResponse: uploadResponse
   });
 
-  if (uploadState && uploadState !== "SUCCESS") {
+  if (uploadState && uploadState !== "SUCCESS" && uploadState !== "SUCCEEDED") {
     throw new Error(`Chrome Web Store upload did not succeed. Final uploadState: ${uploadState}`);
   }
 
@@ -155,7 +155,7 @@ async function uploadPackage({ accessToken, itemName, zipPath }) {
 async function waitForUploadIfNeeded({ accessToken, itemName, initialResponse }) {
   let uploadState = getFirstMatchingValue(initialResponse, ["uploadState"]);
 
-  if (!uploadState || uploadState === "SUCCESS") {
+  if (!uploadState || uploadState === "SUCCESS" || uploadState === "SUCCEEDED") {
     return uploadState || "SUCCESS";
   }
 
@@ -170,7 +170,7 @@ async function waitForUploadIfNeeded({ accessToken, itemName, initialResponse })
     const statusResponse = await fetchStatus({ accessToken, itemName });
     uploadState = getFirstMatchingValue(statusResponse, ["uploadState"]);
 
-    if (!uploadState || uploadState === "SUCCESS") {
+    if (!uploadState || uploadState === "SUCCESS" || uploadState === "SUCCEEDED") {
       return uploadState || "SUCCESS";
     }
 
