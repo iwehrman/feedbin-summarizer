@@ -750,6 +750,7 @@ test("content script rebinds a stale existing summary button and keeps it clicka
 
 test("content script shows a refresh hint when the extension runtime is stale", async () => {
   await withJSDOM(FEEDBIN_FIXTURE, async () => {
+    let summarizeAttemptCount = 0;
     const runtime = {
       lastError: null,
       onMessage: {
@@ -777,6 +778,10 @@ test("content script shows a refresh hint when the extension runtime is stale", 
             return;
           }
 
+          if (message.type === "summarizeArticle") {
+            summarizeAttemptCount += 1;
+          }
+
           runtime.lastError = {
             message: "Could not establish connection. Receiving end does not exist."
           };
@@ -801,12 +806,86 @@ test("content script shows a refresh hint when the extension runtime is stale", 
       const notice = await waitFor(() => document.querySelector(".feedbin-summarizer-status-notice"));
       assert.match(
         notice.textContent || "",
-        /Refresh Feedbin after reloading the extension, then try Summary again\./
+        /Feedbin lost contact with the extension\. Refresh Feedbin and try Summary again\./
       );
-      assert.equal(button.classList.contains("is-loading"), false);
+      assert.ok(summarizeAttemptCount >= 2);
+      await waitFor(() => !button.classList.contains("is-loading"));
     } finally {
       console.error = originalConsoleError;
     }
+  });
+});
+
+test("content script retries a transient runtime disconnect before showing an error", async () => {
+  await withJSDOM(FEEDBIN_FIXTURE, async () => {
+    let summarizeAttemptCount = 0;
+
+    globalThis.chrome = {
+      runtime: {
+        lastError: null,
+        onMessage: {
+          addListener() {}
+        },
+        sendMessage(message, callback) {
+          setTimeout(() => {
+            if (message.type === "getFeedbinState") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: {}
+                }
+              });
+              return;
+            }
+
+            if (message.type === "setFeedSummaryPreference") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: { 42: true }
+                }
+              });
+              return;
+            }
+
+            if (message.type === "summarizeArticle") {
+              summarizeAttemptCount += 1;
+
+              if (summarizeAttemptCount === 1) {
+                globalThis.chrome.runtime.lastError = {
+                  message: "Could not establish connection. Receiving end does not exist."
+                };
+                callback();
+                globalThis.chrome.runtime.lastError = null;
+                return;
+              }
+
+              callback({
+                ok: true,
+                result: {
+                  summaryText: "Recovered summary."
+                }
+              });
+              return;
+            }
+
+            callback({ ok: true, result: {} });
+          }, 0);
+        }
+      }
+    };
+
+    await importFresh("content/feedbin.js");
+    const button = await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
+    const body = document.querySelector(".content-styles");
+
+    button.click();
+
+    await waitFor(() => /Recovered summary/.test(body.innerHTML));
+
+    assert.equal(summarizeAttemptCount, 2);
+    assert.equal(document.querySelector(".feedbin-summarizer-status-notice"), null);
+    assert.equal(button.classList.contains("is-loading"), false);
   });
 });
 

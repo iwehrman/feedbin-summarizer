@@ -19,6 +19,30 @@ const LEGACY_OPENAI_REASONING_EFFORT_MAP = Object.freeze({
   minimal: "none"
 });
 const SUMMARY_MODE_VALUES = Object.freeze(["standard", "expanded"]);
+const LIKELY_UNHELPFUL_ARTICLE_PATTERNS = Object.freeze([
+  /enable javascript/u,
+  /javascript (?:is )?disabled/u,
+  /requires javascript/u,
+  /please turn javascript on/u,
+  /subscribe to continue/u,
+  /sign in to continue/u,
+  /log in to continue/u,
+  /access denied/u,
+  /verify you are human/u,
+  /captcha/u,
+  /checking if the site connection is secure/u,
+  /article body (?:is|was) not available/u,
+  /content unavailable/u
+]);
+const LIKELY_UNHELPFUL_SUMMARY_PATTERNS = Object.freeze([
+  /article body (?:is|was)(?:n't| not)? available/u,
+  /article text (?:is|was)(?:n't| not)? available/u,
+  /text (?:is|was)(?:n't| not)? available/u,
+  /content (?:is|was)(?:n't| not)? available/u,
+  /the summary notes that the article body/u,
+  /the article body wasn't available/u,
+  /the article text wasn't available/u
+]);
 
 export function normalizeSettings(rawSettings) {
   return {
@@ -292,6 +316,42 @@ export function shouldPreferVisibleArticleText(value) {
   }
 
   return text.length >= MIN_COMPLETE_VISIBLE_ARTICLE_CHARS || wordCount >= MIN_COMPLETE_VISIBLE_ARTICLE_WORDS;
+}
+
+export function isLikelyUnhelpfulArticleText(value) {
+  const text = normalizeArticleText(value);
+  if (!text) {
+    return true;
+  }
+
+  const normalized = text.toLowerCase();
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+
+  if (
+    normalized === "loading" ||
+    normalized === "loading..." ||
+    normalized === "loading full content" ||
+    normalized === "loading full content..." ||
+    /^loading\b/u.test(normalized)
+  ) {
+    return true;
+  }
+
+  if (wordCount >= 220) {
+    return false;
+  }
+
+  return LIKELY_UNHELPFUL_ARTICLE_PATTERNS.some(pattern => pattern.test(normalized));
+}
+
+export function isLikelyUnhelpfulSummaryText(value) {
+  const text = normalizeArticleText(value);
+  if (!text) {
+    return true;
+  }
+
+  const normalized = text.toLowerCase();
+  return LIKELY_UNHELPFUL_SUMMARY_PATTERNS.some(pattern => pattern.test(normalized));
 }
 
 export function normalizeSourceUrl(value) {

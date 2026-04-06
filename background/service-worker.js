@@ -16,6 +16,8 @@ import {
   didContentInvalidationChange,
   getActiveProviderCacheConfig,
   getCachedSummaryFromCache,
+  isLikelyUnhelpfulSummaryText,
+  isLikelyUnhelpfulArticleText,
   normalizeArticleText,
   normalizeFeedbinState,
   normalizeSettings,
@@ -455,8 +457,8 @@ async function runSummaryPipeline(payload, settings, options = {}) {
 
   const sourceMaterial = await getSourceMaterial(payload, signal);
   const articleText = normalizeArticleText(sourceMaterial.articleText || "");
-  if (!articleText) {
-    throw new Error("No article text was available to summarize.");
+  if (!articleText || isLikelyUnhelpfulArticleText(articleText)) {
+    throw new Error("No useful article text was available to summarize.");
   }
 
   const summaryText = await summarizeWithProvider(
@@ -619,7 +621,7 @@ async function fetchReadableSourceArticle(sourceUrl, signal) {
   });
 
   const textContent = normalizeArticleText(extracted?.textContent || "");
-  if (!textContent) {
+  if (!textContent || isLikelyUnhelpfulArticleText(textContent)) {
     throw new Error("The source page loaded, but no readable article text could be extracted.");
   }
 
@@ -703,11 +705,21 @@ async function getCachedSummary(cacheKey) {
     return null;
   }
 
+  if (isLikelyUnhelpfulSummaryText(entry.summaryText || "")) {
+    delete cache[cacheKey];
+    await writeSummaryCache(cache);
+    return null;
+  }
+
   await writeSummaryCache(cache);
   return entry;
 }
 
 async function storeCachedSummary(cacheKey, summaryPayload, ttlDays) {
+  if (isLikelyUnhelpfulSummaryText(summaryPayload.summaryText || "")) {
+    return;
+  }
+
   const cache = await readSummaryCache();
   storeCachedSummaryInCache(cache, cacheKey, summaryPayload, ttlDays);
   await writeSummaryCache(cache);

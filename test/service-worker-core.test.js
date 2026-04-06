@@ -6,6 +6,8 @@ import {
   buildSummaryPrompt,
   didContentInvalidationChange,
   getCachedSummaryFromCache,
+  isLikelyUnhelpfulArticleText,
+  isLikelyUnhelpfulSummaryText,
   normalizeSettings,
   normalizeVisibleArticleText,
   pruneSummaryCache,
@@ -130,6 +132,39 @@ test("shouldPreferVisibleArticleText only trusts substantial, non-truncated visi
       Array.from({ length: 320 }, () => "word").join(" ")
     ),
     true
+  );
+});
+
+test("isLikelyUnhelpfulArticleText rejects common loader and access-wall text", () => {
+  assert.equal(isLikelyUnhelpfulArticleText("Loading full content..."), true);
+  assert.equal(
+    isLikelyUnhelpfulArticleText("Please enable JavaScript to view this article."),
+    true
+  );
+  assert.equal(
+    isLikelyUnhelpfulArticleText("Subscribe to continue reading this article."),
+    true
+  );
+  assert.equal(
+    isLikelyUnhelpfulArticleText(
+      Array.from({ length: 260 }, () => "word").join(" ")
+    ),
+    false
+  );
+});
+
+test("isLikelyUnhelpfulSummaryText rejects placeholder-style summary output", () => {
+  assert.equal(
+    isLikelyUnhelpfulSummaryText("The article body wasn't available, so the summary is limited."),
+    true
+  );
+  assert.equal(
+    isLikelyUnhelpfulSummaryText("The article text was not available."),
+    true
+  );
+  assert.equal(
+    isLikelyUnhelpfulSummaryText("Apple is delaying the launch until Siri features are ready."),
+    false
   );
 });
 

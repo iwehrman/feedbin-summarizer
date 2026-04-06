@@ -26,6 +26,8 @@
   const SUMMARY_MORE_LINK_LABEL = "More";
   const STATUS_NOTICE_CLASS = "feedbin-summarizer-status-notice";
   const STATUS_NOTICE_DURATION_MS = 6000;
+  const MESSAGE_RETRY_ATTEMPTS = 2;
+  const MESSAGE_RETRY_DELAY_MS = 150;
   const ACTIVE_ICON_COLOR = "rgb(7, 172, 71)";
   const DEFAULT_OFF_ICON_COLOR = "rgb(246, 246, 246)";
 
@@ -469,11 +471,8 @@
       return "Summary failed. Please try again.";
     }
 
-    if (
-      /Receiving end does not exist/i.test(message) ||
-      /Extension context invalidated/i.test(message)
-    ) {
-      return "Refresh Feedbin after reloading the extension, then try Summary again.";
+    if (isRetryableMessageTransportErrorMessage(message)) {
+      return "Feedbin lost contact with the extension. Refresh Feedbin and try Summary again.";
     }
 
     return message;
@@ -879,7 +878,29 @@
     return null;
   }
 
-  function sendMessage(message) {
+  async function sendMessage(message) {
+    let lastError = null;
+
+    for (let attempt = 0; attempt < MESSAGE_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        return await sendMessageOnce(message);
+      } catch (error) {
+        lastError = error;
+        if (
+          attempt >= MESSAGE_RETRY_ATTEMPTS - 1 ||
+          !shouldRetryMessageTransportError(error)
+        ) {
+          throw error;
+        }
+
+        await delay(MESSAGE_RETRY_DELAY_MS * (attempt + 1));
+      }
+    }
+
+    throw lastError || new Error("Request failed.");
+  }
+
+  function sendMessageOnce(message) {
     return new Promise((resolve, reject) => {
       // Content scripts are intentionally limited to article metadata and summary
       // results. Secret reads and OpenAI requests stay inside the service worker.
@@ -901,6 +922,25 @@
 
         resolve(response);
       });
+    });
+  }
+
+  function shouldRetryMessageTransportError(error) {
+    return isRetryableMessageTransportErrorMessage(String(error?.message || ""));
+  }
+
+  function isRetryableMessageTransportErrorMessage(message) {
+    return (
+      /Receiving end does not exist/i.test(message) ||
+      /Extension context invalidated/i.test(message) ||
+      /No response from the background worker/i.test(message) ||
+      /The message port closed before a response was received/i.test(message)
+    );
+  }
+
+  function delay(ms) {
+    return new Promise(resolve => {
+      window.setTimeout(resolve, ms);
     });
   }
 
