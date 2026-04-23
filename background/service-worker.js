@@ -11,6 +11,7 @@ import {
 } from "../shared/defaults.js";
 import {
   buildLegacySettings,
+  buildArticleTextMetrics,
   buildSummaryCacheKeyForPayload,
   buildSummaryPrompt,
   didContentInvalidationChange,
@@ -18,6 +19,7 @@ import {
   getCachedSummaryFromCache,
   isLikelyUnhelpfulSummaryText,
   isLikelyUnhelpfulArticleText,
+  isCachedSummaryStaleForArticleText,
   normalizeArticleText,
   normalizeFeedbinState,
   normalizeSettings,
@@ -283,7 +285,11 @@ async function handlePrefetchArticle(payload) {
     return {
       skipped: false,
       cacheHit: result.cacheHit,
-      summaryText: result.summaryText
+      summaryText: result.summaryText,
+      contentSourceKind: result.contentSourceKind || "",
+      inputTextLength: Number(result.inputTextLength || 0),
+      inputWordCount: Number(result.inputWordCount || 0),
+      cacheable: result.cacheable !== false
     };
   } catch (error) {
     if (isAbortError(error)) {
@@ -321,6 +327,15 @@ async function handleCheckCachedSummaries(payload) {
       continue;
     }
 
+    if (
+      isLikelyUnhelpfulSummaryText(entry.summaryText || "") ||
+      isCachedSummaryStaleForArticleText(entry, article.articleText || "")
+    ) {
+      delete cache[cacheKey];
+      didTouchCache = true;
+      continue;
+    }
+
     entry.lastAccessedAt = now;
     cache[cacheKey] = entry;
     didTouchCache = true;
@@ -329,7 +344,11 @@ async function handleCheckCachedSummaries(payload) {
     if (typeof entry.summaryText === "string" && entry.summaryText.trim()) {
       cachedSummaries.push({
         entryId: article.entryId,
-        summaryText: entry.summaryText
+        summaryText: entry.summaryText,
+        contentSourceKind: entry.contentSourceKind || "",
+        inputTextLength: Number(entry.inputTextLength || 0),
+        inputWordCount: Number(entry.inputWordCount || 0),
+        cacheable: entry.cacheable !== false
       });
     }
   }
@@ -438,7 +457,7 @@ async function runSummaryPipeline(payload, settings, options = {}) {
   const cacheKey = cacheEnabled ? await buildSummaryCacheKeyForPayload(payload, settings) : "";
 
   if (cacheKey) {
-    const cachedSummary = await getCachedSummary(cacheKey);
+    const cachedSummary = await getCachedSummary(cacheKey, payload.articleText || "");
     if (cachedSummary) {
       const activeProviderConfig = getActiveProviderCacheConfig(settings);
       return {
@@ -446,7 +465,11 @@ async function runSummaryPipeline(payload, settings, options = {}) {
         model: activeProviderConfig.model,
         summaryText: cachedSummary.summaryText,
         contentSourceLabel: cachedSummary.contentSourceLabel || "Cached summary",
+        contentSourceKind: cachedSummary.contentSourceKind || "",
         sourceWarning: cachedSummary.sourceWarning || "",
+        inputTextLength: Number(cachedSummary.inputTextLength || 0),
+        inputWordCount: Number(cachedSummary.inputWordCount || 0),
+        cacheable: cachedSummary.cacheable !== false,
         cacheHit: true
       };
     }
@@ -460,6 +483,7 @@ async function runSummaryPipeline(payload, settings, options = {}) {
   if (!articleText || isLikelyUnhelpfulArticleText(articleText)) {
     throw new Error("No useful article text was available to summarize.");
   }
+  const inputMetrics = buildArticleTextMetrics(articleText);
 
   const summaryText = await summarizeWithProvider(
     providerConfig,
@@ -480,7 +504,10 @@ async function runSummaryPipeline(payload, settings, options = {}) {
     await storeCachedSummary(cacheKey, {
       summaryText,
       contentSourceLabel: sourceMaterial.contentSourceLabel,
-      sourceWarning: sourceMaterial.sourceWarning || ""
+      contentSourceKind: sourceMaterial.contentSourceKind,
+      sourceWarning: sourceMaterial.sourceWarning || "",
+      articleText,
+      cacheable: sourceMaterial.cacheable
     }, SUMMARY_CACHE_TTL_DAYS);
   }
 
@@ -489,7 +516,11 @@ async function runSummaryPipeline(payload, settings, options = {}) {
     model: providerConfig.model,
     summaryText,
     contentSourceLabel: sourceMaterial.contentSourceLabel,
+    contentSourceKind: sourceMaterial.contentSourceKind,
     sourceWarning: sourceMaterial.sourceWarning || "",
+    inputTextLength: inputMetrics.textLength,
+    inputWordCount: inputMetrics.wordCount,
+    cacheable: sourceMaterial.cacheable,
     cacheHit: false
   };
 }
@@ -550,17 +581,22 @@ async function getSourceMaterial(payload, signal) {
     return {
       articleText: visibleArticleText,
       contentSourceLabel: "Feedbin full content",
-      sourceWarning: ""
+      contentSourceKind: "feedbin-full-content",
+      sourceWarning: "",
+      cacheable: true
     };
   }
 
   if (sourceUrl) {
     try {
       const extracted = await fetchReadableSourceArticle(sourceUrl, signal);
+      const extractedText = normalizeArticleText(extracted.textContent || "");
       return {
-        articleText: extracted.textContent,
+        articleText: extractedText,
         contentSourceLabel: "Full source page",
-        sourceWarning: ""
+        contentSourceKind: "source-page",
+        sourceWarning: "",
+        cacheable: shouldPreferVisibleArticleText(extractedText)
       };
     } catch (error) {
       if (!visibleArticleText) {
@@ -570,7 +606,9 @@ async function getSourceMaterial(payload, signal) {
       return {
         articleText: visibleArticleText,
         contentSourceLabel: "Feedbin view",
-        sourceWarning: sanitizeErrorMessage(error)
+        contentSourceKind: "feedbin-visible",
+        sourceWarning: sanitizeErrorMessage(error),
+        cacheable: shouldPreferVisibleArticleText(visibleArticleText)
       };
     }
   }
@@ -578,7 +616,9 @@ async function getSourceMaterial(payload, signal) {
   return {
     articleText: visibleArticleText,
     contentSourceLabel: "Feedbin view",
-    sourceWarning: sourceUrl ? "" : "No source URL was available, so the summary used the text shown in Feedbin."
+    contentSourceKind: "feedbin-visible",
+    sourceWarning: sourceUrl ? "" : "No source URL was available, so the summary used the text shown in Feedbin.",
+    cacheable: shouldPreferVisibleArticleText(visibleArticleText)
   };
 }
 
@@ -697,7 +737,7 @@ async function extractReadableArticle(payload) {
   });
 }
 
-async function getCachedSummary(cacheKey) {
+async function getCachedSummary(cacheKey, currentArticleText = "") {
   const cache = await readSummaryCache();
   const entry = getCachedSummaryFromCache(cache, cacheKey);
   if (!entry) {
@@ -706,6 +746,12 @@ async function getCachedSummary(cacheKey) {
   }
 
   if (isLikelyUnhelpfulSummaryText(entry.summaryText || "")) {
+    delete cache[cacheKey];
+    await writeSummaryCache(cache);
+    return null;
+  }
+
+  if (isCachedSummaryStaleForArticleText(entry, currentArticleText)) {
     delete cache[cacheKey];
     await writeSummaryCache(cache);
     return null;

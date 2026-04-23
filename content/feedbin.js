@@ -28,6 +28,9 @@
   const STATUS_NOTICE_DURATION_MS = 6000;
   const MESSAGE_RETRY_ATTEMPTS = 2;
   const MESSAGE_RETRY_DELAY_MS = 150;
+  const SUMMARY_INPUT_LENGTH_REFRESH_RATIO = 1.5;
+  const SUMMARY_INPUT_LENGTH_REFRESH_DELTA = 800;
+  const PREFETCH_FAILURE_COOLDOWN_MS = 60000;
   const ACTIVE_ICON_COLOR = "rgb(7, 172, 71)";
   const DEFAULT_OFF_ICON_COLOR = "rgb(246, 246, 246)";
 
@@ -40,7 +43,7 @@
     summaryCacheEnabled: true,
     prefetchDebugVisualizationEnabled: false,
     lastViewedEntryId: "",
-    lastAutoAttemptEntryId: "",
+    lastAutoAttemptSignature: "",
     suppressExtractPreferenceUpdate: false,
     activePrefetchSignature: "",
     activePrefetchFeedId: "",
@@ -51,6 +54,7 @@
     unreadFeedPrefetchToken: 0,
     prefetchedSummaries: new Map(),
     prefetchDebugEntries: new Map(),
+    prefetchFailureCooldowns: new Map(),
     pendingPrefetchedEntryId: "",
     pendingPrefetchedSwapTimer: null,
     statusNoticeTimer: null,
@@ -117,7 +121,7 @@
     if (!context) {
       clearStatusNotice();
       state.lastViewedEntryId = "";
-      state.lastAutoAttemptEntryId = "";
+      state.lastAutoAttemptSignature = "";
       clearPendingRequest();
       clearPendingPrefetchedSwap();
       if (state.activeSummary) {
@@ -132,7 +136,7 @@
     if (state.lastViewedEntryId !== context.entryId) {
       clearStatusNotice();
       state.lastViewedEntryId = context.entryId;
-      state.lastAutoAttemptEntryId = "";
+      state.lastAutoAttemptSignature = "";
     }
 
     if (state.pendingRequest && state.pendingRequest.entryId !== context.entryId) {
@@ -273,12 +277,23 @@
       return;
     }
 
-    const prefetchedSummary = context.isExtractActive ? "" : getPrefetchedSummary(context.entryId);
-    if (prefetchedSummary) {
+    const articleText = extractArticleText(context.bodyNode);
+    const prefetchedSummary = context.isExtractActive
+      ? { summaryText: "", isStale: false }
+      : getPrefetchedSummaryState(context.entryId, articleText);
+    if (prefetchedSummary.summaryText) {
+      const summaryState = createSummaryState(context);
       persistSummaryPreference(context.feedId, true);
       rememberFeedSelection(context.feedId);
-      renderSummary(context, prefetchedSummary, createSummaryState(context));
+      renderSummary(context, prefetchedSummary.summaryText, summaryState);
       syncButtonState(button, context);
+
+      if (prefetchedSummary.isStale && canSummarizeContext(context, articleText)) {
+        await triggerSummary(button, context, {
+          prioritizeUserRequest: true,
+          summaryState
+        });
+      }
       return;
     }
 
@@ -355,7 +370,8 @@
         context.entryId,
         response.result.summaryText,
         context.feedId,
-        options.summaryMode || "standard"
+        options.summaryMode || "standard",
+        response.result
       );
       renderSummary(latestContext, response.result.summaryText, summaryState, {
         summaryMode: options.summaryMode || "standard"
@@ -1098,7 +1114,7 @@
           return;
         }
 
-        persistSummaryPreference(context.feedId, false);
+        scheduleRefresh();
       },
       true
     );
@@ -1113,15 +1129,18 @@
       return;
     }
 
-    if (state.lastAutoAttemptEntryId === context.entryId) {
+    const autoAttemptSignature = buildAutoAttemptSignature(context);
+    if (state.lastAutoAttemptSignature === autoAttemptSignature) {
       return;
     }
 
     if (!context.isExtractActive) {
-      const prefetchedSummary = getPrefetchedSummary(context.entryId);
-      if (prefetchedSummary) {
-        state.lastAutoAttemptEntryId = context.entryId;
-        renderSummary(context, prefetchedSummary, createSummaryState(context));
+      const articleText = extractArticleText(context.bodyNode);
+      const prefetchedSummary = getPrefetchedSummaryState(context.entryId, articleText);
+      if (prefetchedSummary.summaryText) {
+        const summaryState = createSummaryState(context);
+        state.lastAutoAttemptSignature = autoAttemptSignature;
+        renderSummary(context, prefetchedSummary.summaryText, summaryState);
         syncButtonState(button, context);
         return;
       }
@@ -1131,8 +1150,22 @@
       return;
     }
 
-    state.lastAutoAttemptEntryId = context.entryId;
+    state.lastAutoAttemptSignature = autoAttemptSignature;
     void triggerSummary(button, context);
+  }
+
+  function buildAutoAttemptSignature(context) {
+    if (!context) {
+      return "";
+    }
+
+    const metrics = buildArticleTextMetrics(extractArticleText(context.bodyNode));
+    return [
+      context.entryId || "",
+      context.sourceUrl || "",
+      context.isExtractActive ? "extract" : "feed",
+      metrics.textLength
+    ].join(":");
   }
 
   function persistSummaryPreference(feedId, enabled) {
@@ -1249,7 +1282,11 @@
         continue;
       }
 
-      if (getPrefetchedSummary(candidate.entryId)) {
+      if (getPrefetchedSummary(candidate.entryId, candidate.articleText)) {
+        continue;
+      }
+
+      if (isPrefetchCoolingDown(candidate.entryId)) {
         continue;
       }
 
@@ -1329,7 +1366,11 @@
         continue;
       }
 
-      if (getPrefetchedSummary(candidate.entryId)) {
+      if (getPrefetchedSummary(candidate.entryId, candidate.articleText)) {
+        continue;
+      }
+
+      if (isPrefetchCoolingDown(candidate.entryId)) {
         continue;
       }
 
@@ -1426,9 +1467,10 @@
             }
           });
           if (response.result.summaryText) {
-            rememberSummaryResult(candidate.entryId, response.result.summaryText, candidate.feedId);
+            rememberSummaryResult(candidate.entryId, response.result.summaryText, candidate.feedId, "standard", response.result);
           }
         } catch (error) {
+          markPrefetchFailure(candidate.entryId);
           console.error("Feedbin Summarizer prefetch:", error);
         } finally {
           releasePrefetchRequest(state.activePrefetchRequests, requestId);
@@ -1465,9 +1507,10 @@
           });
 
           if (response.result.summaryText) {
-            rememberSummaryResult(candidate.entryId, response.result.summaryText, candidate.feedId);
+            rememberSummaryResult(candidate.entryId, response.result.summaryText, candidate.feedId, "standard", response.result);
           }
         } catch (error) {
+          markPrefetchFailure(candidate.entryId);
           console.error("Feedbin Summarizer unread prefetch:", error);
         } finally {
           releasePrefetchRequest(state.unreadFeedPrefetchRequests, requestId);
@@ -1534,7 +1577,9 @@
           rememberSummaryResult(
             cachedSummary.entryId,
             cachedSummary.summaryText,
-            candidatesByEntryId.get(cachedSummary.entryId)?.feedId || ""
+            candidatesByEntryId.get(cachedSummary.entryId)?.feedId || "",
+            "standard",
+            cachedSummary
           );
         }
 
@@ -1657,17 +1702,43 @@
     document.documentElement.classList.remove(PREPARING_SWAP_CLASS);
   }
 
-  function getPrefetchedSummary(entryId) {
-    if (!state.summaryCacheEnabled) {
-      return "";
-    }
-
-    return state.prefetchedSummaries.get(String(entryId || "")) || "";
+  function getPrefetchedSummary(entryId, articleText = "") {
+    return getPrefetchedSummaryState(entryId, articleText).summaryText;
   }
 
-  function rememberSummaryResult(entryId, summaryText, feedId = "", summaryMode = "standard") {
+  function getPrefetchedSummaryState(entryId, articleText = "") {
+    if (!state.summaryCacheEnabled) {
+      return {
+        summaryText: "",
+        isStale: false
+      };
+    }
+
+    const normalizedEntryId = String(entryId || "").trim();
+    if (!normalizedEntryId) {
+      return {
+        summaryText: "",
+        isStale: false
+      };
+    }
+
+    const record = state.prefetchedSummaries.get(normalizedEntryId);
+    if (!record) {
+      return {
+        summaryText: "",
+        isStale: false
+      };
+    }
+
+    return {
+      summaryText: typeof record === "string" ? record : record.summaryText || "",
+      isStale: isPrefetchedSummaryStaleForText(record, articleText)
+    };
+  }
+
+  function rememberSummaryResult(entryId, summaryText, feedId = "", summaryMode = "standard", metadata = {}) {
     if (summaryMode === "standard" && state.summaryCacheEnabled) {
-      storePrefetchedSummary(entryId, summaryText, feedId);
+      storePrefetchedSummary(entryId, summaryText, feedId, metadata);
       return;
     }
 
@@ -1675,7 +1746,7 @@
     scheduleDebugRefresh();
   }
 
-  function storePrefetchedSummary(entryId, summaryText, feedId = "") {
+  function storePrefetchedSummary(entryId, summaryText, feedId = "", metadata = {}) {
     const normalizedEntryId = String(entryId || "").trim();
     const normalizedSummary = String(summaryText || "").trim();
     if (!normalizedEntryId || !normalizedSummary) {
@@ -1683,7 +1754,14 @@
     }
 
     state.prefetchedSummaries.delete(normalizedEntryId);
-    state.prefetchedSummaries.set(normalizedEntryId, normalizedSummary);
+    state.prefetchedSummaries.set(normalizedEntryId, {
+      summaryText: normalizedSummary,
+      feedId: String(feedId || "").trim(),
+      contentSourceKind: String(metadata.contentSourceKind || "").trim(),
+      inputTextLength: Number(metadata.inputTextLength || 0),
+      inputWordCount: Number(metadata.inputWordCount || 0),
+      cacheable: metadata.cacheable !== false
+    });
     upsertPrefetchDebugEntry(normalizedEntryId, feedId, "ready");
 
     while (state.prefetchedSummaries.size > PREFETCHED_SUMMARY_LIMIT) {
@@ -1691,14 +1769,49 @@
       if (!oldestEntryId) {
         break;
       }
-      state.prefetchedSummaries.delete(oldestEntryId);
-      const debugEntry = state.prefetchDebugEntries.get(oldestEntryId);
-      if (debugEntry?.status === "ready") {
-        state.prefetchDebugEntries.delete(oldestEntryId);
-      }
+      forgetPrefetchedSummary(oldestEntryId);
     }
 
     scheduleDebugRefresh();
+  }
+
+  function forgetPrefetchedSummary(entryId) {
+    const normalizedEntryId = String(entryId || "").trim();
+    if (!normalizedEntryId) {
+      return;
+    }
+
+    state.prefetchedSummaries.delete(normalizedEntryId);
+    const debugEntry = state.prefetchDebugEntries.get(normalizedEntryId);
+    if (debugEntry?.status === "ready") {
+      state.prefetchDebugEntries.delete(normalizedEntryId);
+    }
+    scheduleDebugRefresh();
+  }
+
+  function isPrefetchedSummaryStaleForText(record, articleText) {
+    if (!record || typeof record === "string") {
+      return false;
+    }
+
+    const cachedLength = Number(record.inputTextLength || 0);
+    const currentMetrics = buildArticleTextMetrics(articleText);
+    if (!cachedLength || !currentMetrics.textLength) {
+      return false;
+    }
+
+    return (
+      currentMetrics.textLength - cachedLength >= SUMMARY_INPUT_LENGTH_REFRESH_DELTA &&
+      currentMetrics.textLength >= cachedLength * SUMMARY_INPUT_LENGTH_REFRESH_RATIO
+    );
+  }
+
+  function buildArticleTextMetrics(value) {
+    const text = cleanText(value);
+    return {
+      textLength: text.length,
+      wordCount: text ? text.split(/\s+/).filter(Boolean).length : 0
+    };
   }
 
   function clearEphemeralSummaryState(entryId) {
@@ -1717,8 +1830,42 @@
   }
 
   function markPrefetchFetching(entryId, feedId) {
+    if (getPrefetchedSummary(entryId)) {
+      upsertPrefetchDebugEntry(entryId, feedId, "ready");
+      scheduleDebugRefresh();
+      return;
+    }
+
     upsertPrefetchDebugEntry(entryId, feedId, "fetching");
     scheduleDebugRefresh();
+  }
+
+  function markPrefetchFailure(entryId) {
+    const normalizedEntryId = String(entryId || "").trim();
+    if (!normalizedEntryId) {
+      return;
+    }
+
+    state.prefetchFailureCooldowns.set(normalizedEntryId, Date.now() + PREFETCH_FAILURE_COOLDOWN_MS);
+  }
+
+  function isPrefetchCoolingDown(entryId) {
+    const normalizedEntryId = String(entryId || "").trim();
+    if (!normalizedEntryId) {
+      return false;
+    }
+
+    const cooldownUntil = state.prefetchFailureCooldowns.get(normalizedEntryId) || 0;
+    if (!cooldownUntil) {
+      return false;
+    }
+
+    if (cooldownUntil <= Date.now()) {
+      state.prefetchFailureCooldowns.delete(normalizedEntryId);
+      return false;
+    }
+
+    return true;
   }
 
   function clearFetchingPrefetchState(entryId) {

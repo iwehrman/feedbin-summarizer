@@ -353,6 +353,179 @@ test("content script fetches a fresh summary after toggling off when cache is di
   });
 });
 
+test("content script refreshes an in-memory summary when richer article text becomes available", async () => {
+  const shortFixture = FEEDBIN_FIXTURE.replace("Original article body.", "Short teaser.");
+
+  await withJSDOM(shortFixture, async () => {
+    let summaryRequestCount = 0;
+
+    globalThis.chrome = {
+      runtime: {
+        onMessage: {
+          addListener() {}
+        },
+        sendMessage(message, callback) {
+          setTimeout(() => {
+            if (message.type === "getFeedbinState") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: {},
+                  summaryCacheEnabled: true
+                }
+              });
+              return;
+            }
+
+            if (message.type === "setFeedSummaryPreference") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: message.payload.enabled ? { 42: true } : {}
+                }
+              });
+              return;
+            }
+
+            if (message.type === "summarizeArticle") {
+              summaryRequestCount += 1;
+              callback({
+                ok: true,
+                result: {
+                  summaryText: summaryRequestCount === 1 ? "Summary from teaser." : "Summary from full text.",
+                  inputTextLength: summaryRequestCount === 1 ? 13 : 2500,
+                  inputWordCount: summaryRequestCount === 1 ? 2 : 420,
+                  contentSourceKind: "feedbin-visible",
+                  cacheable: true
+                }
+              });
+              return;
+            }
+
+            callback({ ok: true, result: {} });
+          }, 0);
+        }
+      }
+    };
+
+    await importFresh("content/feedbin.js");
+    const button = await waitFor(() => {
+      const nextButton = document.getElementById("feedbin-summarizer-toolbar-button");
+      return nextButton?.dataset?.feedbinSummarizerBound === "true" ? nextButton : null;
+    });
+    const body = document.querySelector(".content-styles");
+
+    button.click();
+    await waitFor(() => /Summary from teaser/.test(body.innerHTML));
+
+    button.click();
+    await waitFor(() => /Short teaser/.test(body.innerHTML));
+
+    body.innerHTML = `<p>${Array.from({ length: 420 }, () => "fulltext").join(" ")}</p>`;
+    button.click();
+    await waitFor(() => /Summary from full text/.test(body.innerHTML));
+
+    assert.equal(summaryRequestCount, 2);
+  });
+});
+
+test("content script does not automatically replace a stale warm summary after article selection", async () => {
+  await withJSDOM(CROSS_FEED_ACTIVE_ARTICLE_FIXTURE, async () => {
+    const sentMessages = [];
+
+    globalThis.chrome = {
+      runtime: {
+        onMessage: {
+          addListener() {}
+        },
+        sendMessage(message, callback) {
+          sentMessages.push(message);
+
+          setTimeout(() => {
+            if (message.type === "getFeedbinState") {
+              callback({
+                ok: true,
+                result: {
+                  summaryFeedPreferences: { 42: true },
+                  summaryCacheEnabled: true
+                }
+              });
+              return;
+            }
+
+            if (message.type === "checkCachedSummaries") {
+              callback({
+                ok: true,
+                result: {
+                  cachedEntryIds: [],
+                  cachedSummaries: []
+                }
+              });
+              return;
+            }
+
+            if (message.type === "prefetchArticle") {
+              callback({
+                ok: true,
+                result: {
+                  summaryText: "Warm snippet summary.",
+                  inputTextLength: 20,
+                  inputWordCount: 3,
+                  contentSourceKind: "feedbin-visible",
+                  cacheable: true
+                }
+              });
+              return;
+            }
+
+            if (message.type === "summarizeArticle") {
+              callback({
+                ok: true,
+                result: {
+                  summaryText: "Fresh full article summary.",
+                  inputTextLength: 2500,
+                  inputWordCount: 420,
+                  contentSourceKind: "feedbin-full-content",
+                  cacheable: true
+                }
+              });
+              return;
+            }
+
+            callback({ ok: true, result: {} });
+          }, 0);
+        }
+      }
+    };
+
+    await importFresh("content/feedbin.js");
+    await waitFor(() => sentMessages.some(message => message.type === "prefetchArticle"));
+
+    const entryWrapper = document.querySelector(".entry-wrapper");
+    const currentEntry = document.querySelector(".entry-content.current");
+    const title = document.querySelector("header.entry-header h1");
+    const sourceLink = document.querySelector("#source_link");
+    const body = document.querySelector(".content-styles");
+    const button = await waitFor(() => document.getElementById("feedbin-summarizer-toolbar-button"));
+
+    entryWrapper.className = "entry-wrapper entry-feed-42";
+    entryWrapper.setAttribute("data-entry-id", "entry-2");
+    entryWrapper.setAttribute("data-feed-id", "42");
+    currentEntry.setAttribute("data-feed-id", "42");
+    title.textContent = "Another story";
+    sourceLink.setAttribute("href", "https://example.com/another-story");
+    body.innerHTML = `<p>${Array.from({ length: 420 }, () => "fulltext").join(" ")}</p>`;
+
+    await waitFor(() => button.dataset.entryId === "entry-2");
+    await waitFor(() => /Warm snippet summary/.test(body.innerHTML));
+    await new Promise(resolve => setTimeout(resolve, 250));
+
+    assert.equal(sentMessages.some(message => message.type === "summarizeArticle"), false);
+    assert.match(body.innerHTML, /Warm snippet summary/);
+    assert.doesNotMatch(body.innerHTML, /Fresh full article summary/);
+  });
+});
+
 test("content script shows minimal prefetch debug dots for enabled feeds and articles", async () => {
   await withJSDOM(FEEDBIN_FIXTURE, async () => {
     globalThis.chrome = {
@@ -454,7 +627,7 @@ test("content script shows a feed-level prefetch dot once a feed has ready summa
   });
 });
 
-test("feed-level prefetch dot falls back to eligible when only a nonvisible article was summarized", async () => {
+test("feed-level prefetch dot stays ready after a provisional article summary is hidden", async () => {
   await withJSDOM(FEEDBIN_FIXTURE, async () => {
     globalThis.chrome = {
       runtime: {
@@ -512,10 +685,10 @@ test("feed-level prefetch dot falls back to eligible when only a nonvisible arti
     button.click();
     const feedDot = await waitFor(() => {
       const dot = document.querySelector(".feedbin-summarizer-prefetch-dot--feed");
-      return dot?.dataset.state === "eligible" ? dot : null;
+      return dot?.dataset.state === "ready" ? dot : null;
     });
 
-    assert.equal(feedDot.dataset.state, "eligible");
+    assert.equal(feedDot.dataset.state, "ready");
   });
 });
 

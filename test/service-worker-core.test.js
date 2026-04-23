@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildArticleTextMetrics,
   buildSummaryCacheKeyForPayload,
   buildSummaryPrompt,
   didContentInvalidationChange,
   getCachedSummaryFromCache,
+  isCachedSummaryStaleForArticleText,
   isLikelyUnhelpfulArticleText,
   isLikelyUnhelpfulSummaryText,
   normalizeSettings,
@@ -163,7 +165,34 @@ test("isLikelyUnhelpfulSummaryText rejects placeholder-style summary output", ()
     true
   );
   assert.equal(
+    isLikelyUnhelpfulSummaryText("The text provided is only the opening paragraph."),
+    true
+  );
+  assert.equal(
+    isLikelyUnhelpfulSummaryText("The full article body is available and includes useful details."),
+    false
+  );
+  assert.equal(
     isLikelyUnhelpfulSummaryText("Apple is delaying the launch until Siri features are ready."),
+    false
+  );
+});
+
+test("cached summary staleness detects materially richer article text", () => {
+  const shortArticle = Array.from({ length: 70 }, () => "word").join(" ");
+  const richArticle = Array.from({ length: 420 }, () => "word").join(" ");
+  const shortMetrics = buildArticleTextMetrics(shortArticle);
+
+  assert.equal(
+    isCachedSummaryStaleForArticleText({ inputTextLength: shortMetrics.textLength }, richArticle),
+    true
+  );
+  assert.equal(
+    isCachedSummaryStaleForArticleText({ inputTextLength: shortMetrics.textLength }, shortArticle),
+    false
+  );
+  assert.equal(
+    isCachedSummaryStaleForArticleText({}, richArticle),
     false
   );
 });
@@ -244,11 +273,17 @@ test("cache helpers respect TTL, update access time, and prune oldest entries", 
   storeCachedSummaryInCache(cache, "fresh", {
     summaryText: "Summary A",
     contentSourceLabel: "Full source page",
-    sourceWarning: ""
+    contentSourceKind: "source-page",
+    sourceWarning: "",
+    articleText: "One two three."
   }, 7, now);
 
   const freshEntry = getCachedSummaryFromCache(cache, "fresh", now + 1000);
   assert.equal(freshEntry.summaryText, "Summary A");
+  assert.equal(freshEntry.contentSourceKind, "source-page");
+  assert.equal(freshEntry.cacheable, true);
+  assert.equal(freshEntry.inputTextLength, 14);
+  assert.equal(freshEntry.inputWordCount, 3);
   assert.equal(cache.fresh.lastAccessedAt, now + 1000);
 
   const expired = {

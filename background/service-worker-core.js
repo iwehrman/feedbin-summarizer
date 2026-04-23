@@ -35,14 +35,20 @@ const LIKELY_UNHELPFUL_ARTICLE_PATTERNS = Object.freeze([
   /content unavailable/u
 ]);
 const LIKELY_UNHELPFUL_SUMMARY_PATTERNS = Object.freeze([
-  /article body (?:is|was)(?:n't| not)? available/u,
-  /article text (?:is|was)(?:n't| not)? available/u,
-  /text (?:is|was)(?:n't| not)? available/u,
-  /content (?:is|was)(?:n't| not)? available/u,
+  /article body (?:(?:is|was)(?:n't| not) available|(?:is|was) unavailable)/u,
+  /article text (?:(?:is|was)(?:n't| not) available|(?:is|was) unavailable)/u,
+  /text (?:(?:is|was)(?:n't| not) available|(?:is|was) unavailable)/u,
+  /text provided (?:is|was) only/u,
+  /provided text (?:is|was) only/u,
+  /only the opening paragraph/u,
+  /only an opening paragraph/u,
+  /content (?:(?:is|was)(?:n't| not) available|(?:is|was) unavailable)/u,
   /the summary notes that the article body/u,
   /the article body wasn't available/u,
   /the article text wasn't available/u
 ]);
+const CACHE_INPUT_LENGTH_INVALIDATION_RATIO = 1.5;
+const CACHE_INPUT_LENGTH_INVALIDATION_DELTA = 800;
 
 export function normalizeSettings(rawSettings) {
   return {
@@ -237,10 +243,15 @@ export function getCachedSummaryFromCache(cache, cacheKey, now = Date.now()) {
 }
 
 export function storeCachedSummaryInCache(cache, cacheKey, summaryPayload, ttlDays, now = Date.now()) {
+  const inputMetrics = buildArticleTextMetrics(summaryPayload.articleText || "");
   cache[cacheKey] = {
     summaryText: summaryPayload.summaryText,
     contentSourceLabel: summaryPayload.contentSourceLabel || "",
+    contentSourceKind: summaryPayload.contentSourceKind || "",
     sourceWarning: summaryPayload.sourceWarning || "",
+    cacheable: summaryPayload.cacheable !== false,
+    inputTextLength: inputMetrics.textLength,
+    inputWordCount: inputMetrics.wordCount,
     createdAt: now,
     lastAccessedAt: now,
     expiresAt: now + ttlDays * 24 * 60 * 60 * 1000
@@ -352,6 +363,28 @@ export function isLikelyUnhelpfulSummaryText(value) {
 
   const normalized = text.toLowerCase();
   return LIKELY_UNHELPFUL_SUMMARY_PATTERNS.some(pattern => pattern.test(normalized));
+}
+
+export function buildArticleTextMetrics(value) {
+  const text = normalizeArticleText(value);
+  return {
+    textLength: text.length,
+    wordCount: text ? text.split(/\s+/).filter(Boolean).length : 0
+  };
+}
+
+export function isCachedSummaryStaleForArticleText(entry, articleText) {
+  const cachedLength = Number(entry?.inputTextLength || 0);
+  const currentMetrics = buildArticleTextMetrics(articleText);
+
+  if (!cachedLength || !currentMetrics.textLength) {
+    return false;
+  }
+
+  return (
+    currentMetrics.textLength - cachedLength >= CACHE_INPUT_LENGTH_INVALIDATION_DELTA &&
+    currentMetrics.textLength >= cachedLength * CACHE_INPUT_LENGTH_INVALIDATION_RATIO
+  );
 }
 
 export function normalizeSourceUrl(value) {
