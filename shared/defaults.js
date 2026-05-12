@@ -26,6 +26,7 @@ export const SESSION_SECRETS_STORAGE_KEY = "sessionSecrets";
 export const SUMMARY_CACHE_STORAGE_KEY = "summaryCacheEntries";
 
 export const OPTIONS_PAGE_PATH = "options/options.html";
+export const SUMMARIZER_PAGE_PATH = "summarizer/summarizer.html";
 export const FEEDBIN_URL_PREFIX = "https://feedbin.com/";
 export const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 export const OPENAI_API_ORIGIN = "https://api.openai.com";

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Summary</title>
+    <link rel="stylesheet" href="summarizer.css">
+  </head>
+  <body>
+    <div class="container">
+      <div id="loading-state" class="loading-state">
+        <div class="spinner"></div>
+        <p>Summarizing&hellip;</p>
+      </div>
+
+      <div id="error-state" class="error-state" hidden>
+        <p class="error-icon">&#x26A0;</p>
+        <p id="error-message" class="error-message"></p>
+        <a id="options-link" class="options-link" hidden>Open Settings</a>
+      </div>
+
+      <article id="result-state" hidden>
+        <header class="result-header">
+          <a id="result-link" class="result-source" href="#" target="_blank" rel="noopener noreferrer"></a>
+          <h1 id="result-title"></h1>
+        </header>
+        <div id="result-body" class="result-body"></div>
+        <footer class="result-footer">
+          <span id="result-meta" class="result-meta"></span>
+        </footer>
+      </article>
+    </div>
+
+    <script type="module" src="summarizer.js"></script>
+  </body>
+</html>

@@ -31,7 +31,8 @@
       "files": [
         "content/*.js",
         "options/*.js",
-        "offscreen/*.js"
+        "offscreen/*.js",
+        "summarizer/*.js"
       ],
       "env": {
         "browser": true,

@@ -2,10 +2,12 @@ import {
   ANTHROPIC_MAX_OUTPUT_TOKENS,
   DEFAULT_SETTINGS,
   FEEDBIN_STATE_STORAGE_KEY,
+  FEEDBIN_URL_PREFIX,
   SECRETS_STORAGE_KEY,
   SETTINGS_KEYS,
   SETTINGS_STORAGE_KEY,
   SOURCE_FETCH_TIMEOUT_MS,
+  SUMMARIZER_PAGE_PATH,
   SUMMARY_CACHE_STORAGE_KEY,
   SUMMARY_CACHE_TTL_DAYS
 } from "../shared/defaults.js";
@@ -62,10 +64,30 @@ const PREFETCH_REQUEST_CONTROLLERS = new Map();
 const IN_FLIGHT_SUMMARY_REQUESTS = new Map();
 const FEEDBIN_TAB_URLS = ["https://feedbin.com/*"];
 
+const ACTIVE_ICON_PATHS = {
+  16: "assets/toolbar-icon-16.png",
+  32: "assets/toolbar-icon-32.png"
+};
+
+const DEFAULT_ICON_PATHS = {
+  16: "assets/toolbar-icon-default-16.png",
+  32: "assets/toolbar-icon-default-32.png"
+};
+
 const startupPromise = initializeExtensionState();
 
 chrome.runtime.onInstalled.addListener(() => {
   void initializeExtensionState();
+});
+
+chrome.action.onClicked.addListener(tab => {
+  void handleActionClick(tab);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (!changeInfo.url) return;
+  const iconPaths = changeInfo.url.startsWith(FEEDBIN_URL_PREFIX) ? ACTIVE_ICON_PATHS : DEFAULT_ICON_PATHS;
+  chrome.action.setIcon({ tabId, path: iconPaths }).catch(() => {});
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -122,6 +144,127 @@ async function initializeExtensionState() {
   await migrateLegacyStorage();
   await ensureStoredSettings();
   await primeSecretCache();
+  await initializeIconState();
+}
+
+async function initializeIconState() {
+  const feedbinTabs = await chrome.tabs.query({ url: FEEDBIN_TAB_URLS });
+  await Promise.allSettled(
+    feedbinTabs
+      .filter(tab => typeof tab.id === "number")
+      .map(tab => chrome.action.setIcon({ tabId: tab.id, path: ACTIVE_ICON_PATHS }))
+  );
+}
+
+async function handleActionClick(tab) {
+  if (!tab?.id || tab.url?.startsWith(FEEDBIN_URL_PREFIX)) {
+    return;
+  }
+
+  const sessionId = crypto.randomUUID();
+  const tabId = tab.id;
+  const sessionKey = `pageSummary:${sessionId}`;
+
+  chrome.action.setIcon({ tabId, path: ACTIVE_ICON_PATHS }).catch(() => {});
+
+  await chrome.storage.session.set({
+    [sessionKey]: { status: "pending", createdAt: Date.now() }
+  });
+
+  await chrome.tabs.create({
+    url: chrome.runtime.getURL(`${SUMMARIZER_PAGE_PATH}?sessionId=${sessionId}`)
+  });
+
+  runWebPageSummarizePipeline(tab)
+    .then(result => chrome.storage.session.set({ [sessionKey]: { status: "done", result } }))
+    .catch(error => chrome.storage.session.set({
+      [sessionKey]: { status: "error", error: sanitizeErrorMessage(error) }
+    }))
+    .finally(() => {
+      chrome.action.setIcon({ tabId, path: DEFAULT_ICON_PATHS }).catch(() => {});
+    });
+}
+
+async function runWebPageSummarizePipeline(tab) {
+  const [{ result: pageData }] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => ({
+      html: document.documentElement.outerHTML,
+      url: location.href,
+      title: document.title
+    })
+  });
+
+  if (!pageData?.html) {
+    throw new Error("Could not access page content.");
+  }
+
+  const extracted = await extractReadableArticle({
+    html: pageData.html,
+    url: pageData.url
+  });
+
+  const articleText = normalizeArticleText(extracted.textContent || "");
+  if (!articleText || isLikelyUnhelpfulArticleText(articleText)) {
+    throw new Error("No readable article text could be extracted from this page.");
+  }
+
+  const settings = await getUserSettings();
+  const cacheEnabled = settings.summaryCacheEnabled !== false;
+  const cachePayload = {
+    sourceUrl: pageData.url,
+    title: extracted.title || tab.title || "",
+    articleText
+  };
+  const cacheKey = cacheEnabled ? await buildSummaryCacheKeyForPayload(cachePayload, settings) : "";
+
+  if (cacheKey) {
+    const cached = await getCachedSummary(cacheKey, articleText);
+    if (cached) {
+      const activeProviderConfig = getActiveProviderCacheConfig(settings);
+      return {
+        title: cachePayload.title,
+        sourceUrl: pageData.url,
+        summaryText: cached.summaryText,
+        provider: settings.provider || DEFAULT_SETTINGS.provider,
+        model: activeProviderConfig.model,
+        cacheHit: true
+      };
+    }
+  }
+
+  const providerConfig = await getSelectedProviderConfig(settings);
+  const summaryText = await summarizeWithProvider(
+    providerConfig,
+    {
+      systemPrompt: settings.systemPrompt,
+      prompt: buildSummaryPrompt({
+        title: cachePayload.title,
+        sourceUrl: pageData.url,
+        articleText
+      })
+    }
+  );
+
+  if (cacheKey) {
+    await storeCachedSummary(cacheKey, {
+      summaryText,
+      contentSourceLabel: "Web page",
+      contentSourceKind: "web-page",
+      sourceWarning: "",
+      articleText,
+      cacheable: true
+    }, SUMMARY_CACHE_TTL_DAYS);
+  }
+
+  return {
+    title: cachePayload.title,
+    sourceUrl: pageData.url,
+    summaryText,
+    provider: providerConfig.provider,
+    model: providerConfig.model,
+    cacheHit: false
+  };
 }
 
 async function buildOptionsState() {

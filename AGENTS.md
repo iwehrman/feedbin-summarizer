@@ -15,7 +15,7 @@ This file is for people or coding agents working on the repo. The README is inte
 - `content/feedbin.js`
   Feedbin-specific content script. Injects the toolbar button, toggles summaries in place, remembers per-feed preferences, manages prefetch, and renders optional debug dots.
 - `background/service-worker.js`
-  Background coordinator. Handles settings, cache lookups, source fetches, provider requests, and runtime message routing.
+  Background coordinator. Handles settings, cache lookups, source fetches, provider requests, runtime message routing, browser action clicks, and toolbar icon state.
 - `background/message-router.js`
   Validates and dispatches the small set of supported runtime messages.
 - `background/openai-client.js`
@@ -30,12 +30,14 @@ This file is for people or coding agents working on the repo. The README is inte
   HTML parsing and Readability extraction in an offscreen document.
 - `options/`
   Trusted extension UI for settings and key entry.
+- `summarizer/`
+  Result page opened when the user clicks the toolbar icon on any non-Feedbin page. Displays the LLM summary in a clean reader-mode layout.
 
 ## Trust Boundaries
 
 - The service worker is the only code that persists or uses provider API keys.
 - Content scripts are treated as untrusted.
-- The options page is write-only for the key after save.
+- The options page and summarizer page are trusted extension pages (write-only for key after save).
 - Authorization headers are created only in the service worker.
 - `chrome.storage.local` and `chrome.storage.session` are locked to `TRUSTED_CONTEXTS`.
 
@@ -43,11 +45,22 @@ More detail is in [SECURITY.md](/Users/ian/Source/summarize-extension/SECURITY.m
 
 ## Summary Flow
 
+**Feedbin articles:**
 1. The content script detects the active Feedbin article and injects the `Summary` button.
 2. On click, it sends article metadata and text to the service worker.
 3. The worker decides whether to use cached output, visible article text, or fetched source-page text.
 4. The worker calls the selected provider API.
 5. The content script replaces the article body with the returned summary using Feedbin's existing article styling.
+
+**Any web page (browser action):**
+1. The user clicks the toolbar icon on any non-Feedbin tab.
+2. The service worker generates a session ID, writes `{ status: "pending" }` to `chrome.storage.session`, sets the toolbar icon to the active (green filled) state, and opens `summarizer/summarizer.html?sessionId=<id>` in a new tab.
+3. The service worker injects a script via `chrome.scripting.executeScript` to extract the page HTML, URL, and title.
+4. The extracted HTML is parsed via the offscreen Readability document.
+5. The text is summarized using the active provider.
+6. The service worker writes `{ status: "done", result }` (or `{ status: "error" }`) to `chrome.storage.session`.
+7. The summarizer page polls `chrome.storage.session` for the session key and renders the result when it appears.
+8. The toolbar icon for the original tab reverts to the default (outline) state.
 
 ## Prefetch Behavior
 
