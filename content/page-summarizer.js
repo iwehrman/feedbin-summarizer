@@ -48,12 +48,15 @@ function ensureOverlay() {
     "z-index: 2147483647",
     "display: flex",
     "overflow: auto",
-    "background: #1a1a1a"
+    "background: #1a1a1a",
+    "color-scheme: dark"
   ].join("; ");
 
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `
 <style>
+  :host { color-scheme: dark; }
+  [hidden] { display: none !important; }
   *, *::before, *::after { box-sizing: border-box; }
   .page {
     display: flex;
