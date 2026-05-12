@@ -7,7 +7,6 @@ import {
   SETTINGS_KEYS,
   SETTINGS_STORAGE_KEY,
   SOURCE_FETCH_TIMEOUT_MS,
-  SUMMARIZER_PAGE_PATH,
   SUMMARY_CACHE_STORAGE_KEY,
   SUMMARY_CACHE_TTL_DAYS
 } from "../shared/defaults.js";
@@ -64,9 +63,13 @@ const PREFETCH_REQUEST_CONTROLLERS = new Map();
 const IN_FLIGHT_SUMMARY_REQUESTS = new Map();
 const FEEDBIN_TAB_URLS = ["https://feedbin.com/*"];
 
+// Per-tab overlay state for non-Feedbin page summarization.
+// status: "loading" | "active" | "hidden"
+const PAGE_SUMMARIZER_TAB_STATE = new Map();
+
 const ACTIVE_ICON_PATHS = {
-  16: "assets/toolbar-icon-16.png",
-  32: "assets/toolbar-icon-32.png"
+  16: "assets/toolbar-icon-active-16.png",
+  32: "assets/toolbar-icon-active-32.png"
 };
 
 const DEFAULT_ICON_PATHS = {
@@ -85,14 +88,34 @@ chrome.action.onClicked.addListener(tab => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (!changeInfo.url) return;
-  const iconPaths = changeInfo.url.startsWith(FEEDBIN_URL_PREFIX) ? ACTIVE_ICON_PATHS : DEFAULT_ICON_PATHS;
-  chrome.action.setIcon({ tabId, path: iconPaths }).catch(() => {});
+  if (changeInfo.url) {
+    const iconPaths = changeInfo.url.startsWith(FEEDBIN_URL_PREFIX) ? ACTIVE_ICON_PATHS : DEFAULT_ICON_PATHS;
+    chrome.action.setIcon({ tabId, path: iconPaths }).catch(() => {});
+  }
+  if (changeInfo.status === "loading" && PAGE_SUMMARIZER_TAB_STATE.has(tabId)) {
+    PAGE_SUMMARIZER_TAB_STATE.delete(tabId);
+    chrome.action.setIcon({ tabId, path: DEFAULT_ICON_PATHS }).catch(() => {});
+  }
+});
+
+chrome.tabs.onRemoved.addListener(tabId => {
+  PAGE_SUMMARIZER_TAB_STATE.delete(tabId);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target === "offscreen") {
     return;
+  }
+
+  if (message?.type === "pageSummarizerClose" && typeof sender?.tab?.id === "number") {
+    const tabId = sender.tab.id;
+    const state = PAGE_SUMMARIZER_TAB_STATE.get(tabId);
+    if (state?.status === "active") {
+      PAGE_SUMMARIZER_TAB_STATE.set(tabId, { status: "hidden", summary: state.summary });
+      chrome.action.setIcon({ tabId, path: DEFAULT_ICON_PATHS }).catch(() => {});
+    }
+    sendResponse({ ok: true });
+    return true;
   }
 
   handleIncomingMessage(message, sender)
@@ -161,27 +184,44 @@ async function handleActionClick(tab) {
     return;
   }
 
-  const sessionId = crypto.randomUUID();
   const tabId = tab.id;
-  const sessionKey = `pageSummary:${sessionId}`;
+  const state = PAGE_SUMMARIZER_TAB_STATE.get(tabId) || { status: "idle" };
 
+  if (state.status === "loading") {
+    return;
+  }
+
+  if (state.status === "active") {
+    PAGE_SUMMARIZER_TAB_STATE.set(tabId, { status: "hidden", summary: state.summary });
+    chrome.action.setIcon({ tabId, path: DEFAULT_ICON_PATHS }).catch(() => {});
+    chrome.tabs.sendMessage(tabId, { target: "pageSummarizer", type: "hideSummary" }).catch(() => {});
+    return;
+  }
+
+  if (state.status === "hidden" && state.summary) {
+    PAGE_SUMMARIZER_TAB_STATE.set(tabId, { status: "active", summary: state.summary });
+    chrome.action.setIcon({ tabId, path: ACTIVE_ICON_PATHS }).catch(() => {});
+    chrome.tabs.sendMessage(tabId, { target: "pageSummarizer", type: "showSummary", result: state.summary }).catch(() => {});
+    return;
+  }
+
+  PAGE_SUMMARIZER_TAB_STATE.set(tabId, { status: "loading" });
   chrome.action.setIcon({ tabId, path: ACTIVE_ICON_PATHS }).catch(() => {});
 
-  await chrome.storage.session.set({
-    [sessionKey]: { status: "pending", createdAt: Date.now() }
-  });
-
-  await chrome.tabs.create({
-    url: chrome.runtime.getURL(`${SUMMARIZER_PAGE_PATH}?sessionId=${sessionId}`)
-  });
+  await chrome.scripting.executeScript({ target: { tabId }, files: ["content/page-summarizer.js"] });
+  chrome.tabs.sendMessage(tabId, { target: "pageSummarizer", type: "showLoading" }).catch(() => {});
 
   runWebPageSummarizePipeline(tab)
-    .then(result => chrome.storage.session.set({ [sessionKey]: { status: "done", result } }))
-    .catch(error => chrome.storage.session.set({
-      [sessionKey]: { status: "error", error: sanitizeErrorMessage(error) }
-    }))
-    .finally(() => {
+    .then(result => {
+      PAGE_SUMMARIZER_TAB_STATE.set(tabId, { status: "active", summary: result });
+      chrome.tabs.sendMessage(tabId, { target: "pageSummarizer", type: "showSummary", result }).catch(() => {});
+    })
+    .catch(error => {
+      PAGE_SUMMARIZER_TAB_STATE.set(tabId, { status: "idle" });
       chrome.action.setIcon({ tabId, path: DEFAULT_ICON_PATHS }).catch(() => {});
+      const message = sanitizeErrorMessage(error);
+      const showOptionsLink = /API key/i.test(message);
+      chrome.tabs.sendMessage(tabId, { target: "pageSummarizer", type: "showError", error: message, showOptionsLink }).catch(() => {});
     });
 }
 

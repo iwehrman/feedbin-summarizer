@@ -54,13 +54,12 @@ More detail is in [SECURITY.md](/Users/ian/Source/summarize-extension/SECURITY.m
 
 **Any web page (browser action):**
 1. The user clicks the toolbar icon on any non-Feedbin tab.
-2. The service worker generates a session ID, writes `{ status: "pending" }` to `chrome.storage.session`, sets the toolbar icon to the active (green filled) state, and opens `summarizer/summarizer.html?sessionId=<id>` in a new tab.
-3. The service worker injects a script via `chrome.scripting.executeScript` to extract the page HTML, URL, and title.
-4. The extracted HTML is parsed via the offscreen Readability document.
-5. The text is summarized using the active provider.
-6. The service worker writes `{ status: "done", result }` (or `{ status: "error" }`) to `chrome.storage.session`.
-7. The summarizer page polls `chrome.storage.session` for the session key and renders the result when it appears.
-8. The toolbar icon for the original tab reverts to the default (outline) state.
+2. The service worker injects `content/page-summarizer.js` into the tab and sends `showLoading`. The toolbar icon turns green.
+3. The service worker extracts the page HTML via `chrome.scripting.executeScript`, parses it with Readability via the offscreen document, and summarizes it.
+4. On success, the service worker sends `showSummary` to the overlay. On error, it sends `showError` and reverts the icon to gray.
+5. Clicking the toolbar icon again toggles the overlay off (icon goes gray). Clicking a third time restores the cached summary in place (icon goes green).
+6. Clicking the overlay's close button also dismisses it and reverts the icon to gray.
+7. Navigating the tab or closing it clears the per-tab state in the service worker.
 
 ## Prefetch Behavior
 
