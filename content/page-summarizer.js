@@ -41,6 +41,7 @@ function ensureOverlay() {
 
   const host = document.createElement("div");
   host.id = OVERLAY_HOST_ID;
+  host.setAttribute("data-darkreader-ignore", "");
   host.style.cssText = [
     "all: initial",
     "position: fixed",
