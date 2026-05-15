@@ -88,13 +88,18 @@ chrome.action.onClicked.addListener(tab => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.url) {
-    const iconPaths = changeInfo.url.startsWith(FEEDBIN_URL_PREFIX) ? ACTIVE_ICON_PATHS : DEFAULT_ICON_PATHS;
-    chrome.action.setIcon({ tabId, path: iconPaths }).catch(() => {});
-  }
+  const isFeedbin = changeInfo.url?.startsWith(FEEDBIN_URL_PREFIX);
+
   if (changeInfo.status === "loading" && PAGE_SUMMARIZER_TAB_STATE.has(tabId)) {
     PAGE_SUMMARIZER_TAB_STATE.delete(tabId);
-    chrome.action.setIcon({ tabId, path: DEFAULT_ICON_PATHS }).catch(() => {});
+    // Only revert to gray if not simultaneously navigating to a Feedbin URL.
+    if (!isFeedbin) {
+      chrome.action.setIcon({ tabId, path: DEFAULT_ICON_PATHS }).catch(() => {});
+    }
+  }
+
+  if (changeInfo.url) {
+    chrome.action.setIcon({ tabId, path: isFeedbin ? ACTIVE_ICON_PATHS : DEFAULT_ICON_PATHS }).catch(() => {});
   }
 });
 
@@ -164,10 +169,11 @@ async function handleIncomingMessage(message, sender) {
 async function initializeExtensionState() {
   // Lock extension storage down before any content script has a chance to touch it.
   await initializeSecretManager();
-  await migrateLegacyStorage();
-  await ensureStoredSettings();
-  await primeSecretCache();
-  await initializeIconState();
+  // Run icon state restore in parallel with storage ops to minimize flash on SW restart.
+  await Promise.all([
+    initializeIconState(),
+    migrateLegacyStorage().then(() => ensureStoredSettings()).then(() => primeSecretCache())
+  ]);
 }
 
 async function initializeIconState() {
