@@ -77,6 +77,10 @@ const DEFAULT_ICON_PATHS = {
   32: "assets/toolbar-icon-default-32.png"
 };
 
+// Restore Feedbin tab icons immediately at SW start — before any other async work —
+// to minimize the window where Chrome might briefly show the default (gray) icon.
+void initializeIconState();
+
 const startupPromise = initializeExtensionState();
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -169,11 +173,10 @@ async function handleIncomingMessage(message, sender) {
 async function initializeExtensionState() {
   // Lock extension storage down before any content script has a chance to touch it.
   await initializeSecretManager();
-  // Run icon state restore in parallel with storage ops to minimize flash on SW restart.
-  await Promise.all([
-    initializeIconState(),
-    migrateLegacyStorage().then(() => ensureStoredSettings()).then(() => primeSecretCache())
-  ]);
+  await migrateLegacyStorage();
+  await ensureStoredSettings();
+  await primeSecretCache();
+  await initializeIconState();
 }
 
 async function initializeIconState() {
