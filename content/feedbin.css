@@ -2,6 +2,10 @@
   display: inline-flex;
 }
 
+.feedbin-summarizer-summary-content {
+  display: contents;
+}
+
 .feedbin-summarizer-toolbar-button {
   display: inline-flex;
   align-items: center;

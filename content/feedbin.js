@@ -22,6 +22,7 @@
   const PREFETCHED_SUMMARY_LIMIT = 12;
   const PREPARING_SWAP_CLASS = "feedbin-summarizer-preparing-swap";
   const PREFETCH_DEBUG_DOT_CLASS = "feedbin-summarizer-prefetch-dot";
+  const SUMMARY_CONTENT_CLASS = "feedbin-summarizer-summary-content";
   const SUMMARY_MORE_LINK_CLASS = "feedbin-summarizer-more-link";
   const SUMMARY_MORE_LINK_LABEL = "More";
   const STATUS_NOTICE_CLASS = "feedbin-summarizer-status-notice";
@@ -277,6 +278,12 @@
       return;
     }
 
+    // If the bodyNode still has summary HTML from a previous entry, Feedbin hasn't replaced
+    // the content yet — bail to avoid capturing the wrong originalHtml.
+    if (bodyHasStaleSummary(context)) {
+      return;
+    }
+
     const articleText = extractArticleText(context.bodyNode);
     const prefetchedSummary = context.isExtractActive
       ? { summaryText: "", isStale: false }
@@ -460,6 +467,19 @@
       originalHtml: context.bodyNode.innerHTML,
       originalText: extractArticleText(context.bodyNode)
     };
+  }
+
+  // Returns true when the bodyNode still has summary HTML from a different entry — a brief
+  // window where Feedbin has changed the active entry but not yet replaced the DOM content.
+  // In this case, createSummaryState would capture the wrong originalHtml, so callers should
+  // bail and let the next refreshUi (after Feedbin updates the node) proceed instead.
+  function bodyHasStaleSummary(context) {
+    const markerEl = context.bodyNode.querySelector(`.${SUMMARY_CONTENT_CLASS}`);
+    if (!markerEl) {
+      return false;
+    }
+    // The marker is present but the active summary belongs to the current entry — that's fine.
+    return !(state.activeSummary && state.activeSummary.entryId === context.entryId);
   }
 
   function showSummaryError(context, error) {
@@ -678,7 +698,7 @@
       );
     }
 
-    return htmlParts.join("");
+    return `<div class="${SUMMARY_CONTENT_CLASS}">${htmlParts.join("")}</div>`;
   }
 
   function bindRenderedSummaryActions(context, summaryState) {
@@ -1126,6 +1146,12 @@
     }
 
     if (state.activeSummary && state.activeSummary.entryId === context.entryId) {
+      return;
+    }
+
+    // If the bodyNode still has summary HTML from a previous entry, Feedbin hasn't replaced
+    // the content yet. Bail and let the next refreshUi (after the DOM update) proceed.
+    if (bodyHasStaleSummary(context)) {
       return;
     }
 
