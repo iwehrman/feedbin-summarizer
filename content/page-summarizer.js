@@ -64,6 +64,7 @@ function ensureOverlay() {
     flex-direction: column;
     min-height: 100%;
     width: 100%;
+    background: #1a1a1a;
     color: #e0e0e0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     font-size: 16px;
@@ -114,6 +115,7 @@ function ensureOverlay() {
     max-width: 680px;
     width: 100%;
     margin: 0 auto;
+    background: #1a1a1a;
   }
   p { margin: 0 0 1em; }
   p:last-child { margin-bottom: 0; }
