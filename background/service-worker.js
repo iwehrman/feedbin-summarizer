@@ -127,6 +127,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "pageSummarizerExpand" && typeof sender?.tab?.id === "number") {
+    const tabId = sender.tab.id;
+    const state = PAGE_SUMMARIZER_TAB_STATE.get(tabId);
+    if (!state?.summary || !state.pageData) {
+      sendResponse({ ok: false, error: "No page data available." });
+      return true;
+    }
+    runExpandedWebPageSummary(state.pageData, state.summary.summaryText)
+      .then(result => {
+        const updated = { ...state.summary, summaryText: result.summaryText };
+        PAGE_SUMMARIZER_TAB_STATE.set(tabId, { ...state, summary: updated });
+        sendResponse({ ok: true, result: updated });
+      })
+      .catch(error => sendResponse({ ok: false, error: sanitizeErrorMessage(error) }));
+    return true;
+  }
+
   handleIncomingMessage(message, sender)
     .then(result => sendResponse({ ok: true, result }))
     .catch(error => sendResponse({ ok: false, error: sanitizeErrorMessage(error) }));
@@ -221,8 +238,8 @@ async function handleActionClick(tab) {
   chrome.tabs.sendMessage(tabId, { target: "pageSummarizer", type: "showLoading" }).catch(() => {});
 
   runWebPageSummarizePipeline(tab)
-    .then(result => {
-      PAGE_SUMMARIZER_TAB_STATE.set(tabId, { status: "active", summary: result });
+    .then(({ result, pageData }) => {
+      PAGE_SUMMARIZER_TAB_STATE.set(tabId, { status: "active", summary: result, pageData });
       chrome.tabs.sendMessage(tabId, { target: "pageSummarizer", type: "showSummary", result }).catch(() => {});
     })
     .catch(error => {
@@ -267,17 +284,22 @@ async function runWebPageSummarizePipeline(tab) {
   };
   const cacheKey = cacheEnabled ? await buildSummaryCacheKeyForPayload(cachePayload, settings) : "";
 
+  const storedPageData = { articleText, title: cachePayload.title, sourceUrl: pageData.url };
+
   if (cacheKey) {
     const cached = await getCachedSummary(cacheKey, articleText);
     if (cached) {
       const activeProviderConfig = getActiveProviderCacheConfig(settings);
       return {
-        title: cachePayload.title,
-        sourceUrl: pageData.url,
-        summaryText: cached.summaryText,
-        provider: settings.provider || DEFAULT_SETTINGS.provider,
-        model: activeProviderConfig.model,
-        cacheHit: true
+        result: {
+          title: cachePayload.title,
+          sourceUrl: pageData.url,
+          summaryText: cached.summaryText,
+          provider: settings.provider || DEFAULT_SETTINGS.provider,
+          model: activeProviderConfig.model,
+          cacheHit: true
+        },
+        pageData: storedPageData
       };
     }
   }
@@ -307,13 +329,35 @@ async function runWebPageSummarizePipeline(tab) {
   }
 
   return {
-    title: cachePayload.title,
-    sourceUrl: pageData.url,
-    summaryText,
-    provider: providerConfig.provider,
-    model: providerConfig.model,
-    cacheHit: false
+    result: {
+      title: cachePayload.title,
+      sourceUrl: pageData.url,
+      summaryText,
+      provider: providerConfig.provider,
+      model: providerConfig.model,
+      cacheHit: false
+    },
+    pageData: storedPageData
   };
+}
+
+async function runExpandedWebPageSummary(pageData, existingSummaryText) {
+  const settings = await getUserSettings();
+  const providerConfig = await getSelectedProviderConfig(settings);
+  const summaryText = await summarizeWithProvider(
+    providerConfig,
+    {
+      systemPrompt: settings.systemPrompt,
+      prompt: buildSummaryPrompt({
+        title: pageData.title,
+        sourceUrl: pageData.sourceUrl,
+        articleText: pageData.articleText,
+        summaryMode: "expanded",
+        existingSummaryText
+      })
+    }
+  );
+  return { summaryText };
 }
 
 async function buildOptionsState() {

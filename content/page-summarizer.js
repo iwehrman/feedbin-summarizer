@@ -65,10 +65,10 @@ function ensureOverlay() {
     min-height: 100%;
     width: 100%;
     background: #1a1a1a;
-    color: #e0e0e0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    font-size: 16px;
-    line-height: 1.6;
+    color: #d8d8d8;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 18px;
+    line-height: 1.75;
   }
   .header {
     position: sticky;
@@ -79,6 +79,7 @@ function ensureOverlay() {
     display: flex;
     align-items: center;
     gap: 10px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   }
   .close-btn {
     all: unset;
@@ -111,19 +112,21 @@ function ensureOverlay() {
   }
   .body {
     flex: 1;
-    padding: 32px 24px 48px;
+    padding: 36px 24px 56px;
     max-width: 680px;
     width: 100%;
     margin: 0 auto;
     background: #1a1a1a;
   }
-  p { margin: 0 0 1em; }
+  p { margin: 0 0 1.2em; }
   p:last-child { margin-bottom: 0; }
   .loading {
     display: flex;
     align-items: center;
     gap: 12px;
     color: #888;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 15px;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .spinner {
@@ -135,20 +138,33 @@ function ensureOverlay() {
     animation: spin 0.75s linear infinite;
     flex-shrink: 0;
   }
-  .error-msg { color: #e06060; }
+  .error-msg {
+    color: #e06060;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 15px;
+  }
   .options-link {
     display: inline-block;
     margin-top: 12px;
     color: #0cac47;
     text-decoration: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     font-size: 14px;
   }
   .options-link:hover { text-decoration: underline; }
-  .meta {
-    margin-top: 24px;
-    font-size: 12px;
-    color: #555;
+  .more-btn {
+    all: unset;
+    display: inline-block;
+    margin-top: 1.4em;
+    color: #0cac47;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 1;
+    transition: opacity 140ms ease;
   }
+  .more-btn:hover { text-decoration: underline; }
+  .more-btn:disabled { opacity: 0.5; cursor: default; text-decoration: none; }
 </style>
 <div class="page">
   <div class="header">
@@ -165,7 +181,7 @@ function ensureOverlay() {
       <a class="options-link" id="options-link" hidden target="_blank">Open Settings</a>
     </div>
     <div id="result-state" hidden></div>
-    <div class="meta" id="result-meta" hidden></div>
+    <button class="more-btn" id="more-btn" hidden>More</button>
   </div>
 </div>`;
 
@@ -175,7 +191,26 @@ function ensureOverlay() {
     chrome.runtime.sendMessage({ type: "pageSummarizerClose" }).catch(() => {});
   });
 
+  shadow.getElementById("more-btn").addEventListener("click", handleMoreClick);
+
   document.documentElement.appendChild(host);
+}
+
+function handleMoreClick() {
+  const shadow = getHost()?.shadowRoot;
+  if (!shadow) return;
+  const btn = shadow.getElementById("more-btn");
+  btn.disabled = true;
+  btn.textContent = "Loading…";
+  chrome.runtime.sendMessage({ type: "pageSummarizerExpand" }, response => {
+    if (!shadow) return;
+    btn.disabled = false;
+    btn.textContent = "More";
+    if (response?.ok && response.result?.summaryText) {
+      renderSummaryText(shadow, response.result.summaryText);
+      btn.hidden = true;
+    }
+  });
 }
 
 function showOverlay() {
@@ -197,9 +232,20 @@ function setLoading() {
   shadow.getElementById("loading-state").hidden = false;
   shadow.getElementById("error-state").hidden = true;
   shadow.getElementById("result-state").hidden = true;
-  shadow.getElementById("result-meta").hidden = true;
+  shadow.getElementById("more-btn").hidden = true;
   shadow.getElementById("header-title").textContent = "Summarizing…";
   shadow.getElementById("header-hostname").textContent = "";
+}
+
+function renderSummaryText(shadow, summaryText) {
+  const resultEl = shadow.getElementById("result-state");
+  resultEl.innerHTML = "";
+  const paragraphs = (summaryText || "").split(/\n\n+/).filter(p => p.trim());
+  for (const para of paragraphs.length ? paragraphs : [summaryText || ""]) {
+    const p = document.createElement("p");
+    p.textContent = para.trim();
+    resultEl.appendChild(p);
+  }
 }
 
 function setSummary(result) {
@@ -216,26 +262,16 @@ function setSummary(result) {
   titleEl.textContent = result.title || hostname;
   hostnameEl.textContent = result.title && hostname !== result.title ? hostname : "";
 
-  const resultEl = shadow.getElementById("result-state");
-  resultEl.innerHTML = "";
-  const paragraphs = (result.summaryText || "").split(/\n\n+/).filter(p => p.trim());
-  for (const para of paragraphs.length ? paragraphs : [result.summaryText || ""]) {
-    const p = document.createElement("p");
-    p.textContent = para.trim();
-    resultEl.appendChild(p);
-  }
-
-  const metaParts = [];
-  if (result.provider) metaParts.push(result.provider === "openai" ? "OpenAI" : "Anthropic");
-  if (result.model) metaParts.push(result.model);
-  if (result.cacheHit) metaParts.push("cached");
-  const metaEl = shadow.getElementById("result-meta");
-  metaEl.textContent = metaParts.join(" · ");
+  renderSummaryText(shadow, result.summaryText);
 
   shadow.getElementById("loading-state").hidden = true;
   shadow.getElementById("error-state").hidden = true;
-  resultEl.hidden = false;
-  metaEl.hidden = !metaParts.length;
+  shadow.getElementById("result-state").hidden = false;
+
+  const moreBtn = shadow.getElementById("more-btn");
+  moreBtn.hidden = false;
+  moreBtn.disabled = false;
+  moreBtn.textContent = "More";
 }
 
 function setError(message, showOptionsLink) {
@@ -251,7 +287,7 @@ function setError(message, showOptionsLink) {
   shadow.getElementById("loading-state").hidden = true;
   shadow.getElementById("error-state").hidden = false;
   shadow.getElementById("result-state").hidden = true;
-  shadow.getElementById("result-meta").hidden = true;
+  shadow.getElementById("more-btn").hidden = true;
   shadow.getElementById("header-title").textContent = "Could not summarize";
   shadow.getElementById("header-hostname").textContent = "";
 }
