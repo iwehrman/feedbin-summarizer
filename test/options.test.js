@@ -19,6 +19,8 @@ const OPTIONS_HTML = `
       <button type="button" data-provider-action="test" data-provider="openai">Test</button>
       <span id="openai-test-indicator"></span>
       <select name="openaiModel" id="openaiModel">
+        <option value="gpt-6-luna">GPT-6 Luna</option>
+        <option value="gpt-5.6-luna">GPT-5.6 Luna</option>
         <option value="gpt-5.4-nano">GPT-5.4 Nano</option>
         <option value="gpt-5.4-mini">GPT-5.4 Mini</option>
         <option value="gpt-5.4">GPT-5.4</option>
@@ -41,6 +43,8 @@ const OPTIONS_HTML = `
       <button type="button" data-provider-action="test" data-provider="anthropic">Test</button>
       <span id="anthropic-test-indicator"></span>
       <select name="anthropicModel" id="anthropicModel">
+        <option value="claude-haiku-5-5">Claude Haiku 5.5</option>
+        <option value="claude-sonnet-5-5">Claude Sonnet 5.5</option>
         <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
         <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
       </select>
@@ -353,7 +357,8 @@ test("options page auto-saves provider-specific and shared settings", async () =
 
     document.querySelector('input[name="provider"][value="anthropic"]').checked = true;
     document.querySelector('input[name="provider"][value="anthropic"]').dispatchEvent(new Event("change", { bubbles: true }));
-    document.getElementById("anthropicModel").value = "claude-sonnet-4-6";
+    assert.equal(document.getElementById("anthropicModel").value, "claude-haiku-5-5");
+    document.getElementById("anthropicModel").value = "claude-sonnet-5-5";
     document.getElementById("anthropicModel").dispatchEvent(new Event("change", { bubbles: true }));
     document.getElementById("summaryCacheEnabled").checked = false;
     document.getElementById("summaryCacheEnabled").dispatchEvent(new Event("change", { bubbles: true }));
@@ -368,7 +373,7 @@ test("options page auto-saves provider-specific and shared settings", async () =
       openaiModel: DEFAULT_SETTINGS.openaiModel,
       openaiReasoningEffort: DEFAULT_SETTINGS.openaiReasoningEffort,
       openaiVerbosity: DEFAULT_SETTINGS.openaiVerbosity,
-      anthropicModel: "claude-sonnet-4-6",
+      anthropicModel: "claude-sonnet-5-5",
       summaryCacheEnabled: false,
       prefetchDebugVisualizationEnabled: false,
       systemPrompt: "Summarize clearly."

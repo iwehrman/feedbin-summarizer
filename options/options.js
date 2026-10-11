@@ -7,10 +7,10 @@ const PROVIDER_LABELS = {
 };
 const SETTINGS_DEFAULTS = {
   provider: DEFAULT_SETTINGS.provider || "openai",
-  openaiModel: DEFAULT_SETTINGS.openaiModel || "gpt-5.4-nano",
+  openaiModel: DEFAULT_SETTINGS.openaiModel || "gpt-6-luna",
   openaiReasoningEffort: DEFAULT_SETTINGS.openaiReasoningEffort || "none",
   openaiVerbosity: DEFAULT_SETTINGS.openaiVerbosity || "low",
-  anthropicModel: DEFAULT_SETTINGS.anthropicModel || "claude-haiku-4-5",
+  anthropicModel: DEFAULT_SETTINGS.anthropicModel || "claude-haiku-5-5",
   summaryCacheEnabled: DEFAULT_SETTINGS.summaryCacheEnabled ?? true,
   prefetchDebugVisualizationEnabled: DEFAULT_SETTINGS.prefetchDebugVisualizationEnabled ?? false,
   systemPrompt: DEFAULT_SETTINGS.systemPrompt || ""

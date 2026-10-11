@@ -28,6 +28,9 @@ export async function summarizeWithAnthropic(anthropicConfig, input, signal) {
       body: JSON.stringify({
         model: anthropicConfig.model,
         max_tokens: anthropicConfig.maxOutputTokens || ANTHROPIC_MAX_OUTPUT_TOKENS,
+        // Keep the existing text-only summary budget: 5.5 enables thinking by default.
+        ...(anthropicConfig.model === "claude-haiku-5-5" ? { thinking: { type: "disabled" } } : {}),
+        ...(anthropicConfig.model === "claude-sonnet-5-5" ? { thinking: { type: "between_tools" } } : {}),
         system: input.systemPrompt,
         messages: [
           {

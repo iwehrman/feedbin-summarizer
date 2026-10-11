@@ -1,8 +1,11 @@
 import {
   ANTHROPIC_MAX_OUTPUT_TOKENS,
+  ANTHROPIC_MODEL_UPGRADE_VERSION,
   DEFAULT_SETTINGS,
   FEEDBIN_STATE_STORAGE_KEY,
   FEEDBIN_URL_PREFIX,
+  LAST_APPLIED_OPENAI_MODEL_DEFAULT_STORAGE_KEY,
+  LAST_APPLIED_ANTHROPIC_MODEL_UPGRADE_STORAGE_KEY,
   SECRETS_STORAGE_KEY,
   SETTINGS_KEYS,
   SETTINGS_STORAGE_KEY,
@@ -11,6 +14,8 @@ import {
   SUMMARY_CACHE_TTL_DAYS
 } from "../shared/defaults.js";
 import {
+  applyPreferredOpenAIModel,
+  applyPreferredAnthropicModels,
   buildLegacySettings,
   buildArticleTextMetrics,
   buildSummaryCacheKeyForPayload,
@@ -629,18 +634,37 @@ async function getFeedbinState() {
 }
 
 async function ensureStoredSettings() {
-  const stored = await chrome.storage.local.get(SETTINGS_STORAGE_KEY);
-  if (!stored[SETTINGS_STORAGE_KEY]) {
+  const stored = await chrome.storage.local.get([
+    SETTINGS_STORAGE_KEY,
+    LAST_APPLIED_OPENAI_MODEL_DEFAULT_STORAGE_KEY,
+    LAST_APPLIED_ANTHROPIC_MODEL_UPGRADE_STORAGE_KEY
+  ]);
+  const previousSettings = normalizeSettings(stored[SETTINGS_STORAGE_KEY]);
+  const lastAppliedDefaultModel = stored[LAST_APPLIED_OPENAI_MODEL_DEFAULT_STORAGE_KEY];
+  const lastAppliedAnthropicUpgrade = stored[LAST_APPLIED_ANTHROPIC_MODEL_UPGRADE_STORAGE_KEY];
+  const nextSettings = applyPreferredAnthropicModels(
+    applyPreferredOpenAIModel(previousSettings, lastAppliedDefaultModel),
+    lastAppliedAnthropicUpgrade
+  );
+  const defaultChanged = lastAppliedDefaultModel !== DEFAULT_SETTINGS.openaiModel ||
+    lastAppliedAnthropicUpgrade !== ANTHROPIC_MODEL_UPGRADE_VERSION;
+
+  if (!stored[SETTINGS_STORAGE_KEY] || !shallowEqual(stored[SETTINGS_STORAGE_KEY], nextSettings) || defaultChanged) {
     await chrome.storage.local.set({
-      [SETTINGS_STORAGE_KEY]: DEFAULT_SETTINGS
+      [SETTINGS_STORAGE_KEY]: nextSettings,
+      [LAST_APPLIED_OPENAI_MODEL_DEFAULT_STORAGE_KEY]: DEFAULT_SETTINGS.openaiModel,
+      [LAST_APPLIED_ANTHROPIC_MODEL_UPGRADE_STORAGE_KEY]: ANTHROPIC_MODEL_UPGRADE_VERSION
     });
-    return;
   }
 
-  const normalized = normalizeSettings(stored[SETTINGS_STORAGE_KEY]);
-  if (!shallowEqual(stored[SETTINGS_STORAGE_KEY], normalized)) {
-    await chrome.storage.local.set({
-      [SETTINGS_STORAGE_KEY]: normalized
+  if (didContentInvalidationChange(previousSettings, nextSettings)) {
+    await broadcastToFeedbinTabs({
+      type: "settingsUpdated",
+      payload: {
+        clearPrefetchedSummaries: true,
+        summaryCacheEnabled: nextSettings.summaryCacheEnabled,
+        prefetchDebugVisualizationEnabled: nextSettings.prefetchDebugVisualizationEnabled
+      }
     });
   }
 }

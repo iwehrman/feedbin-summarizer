@@ -70,6 +70,35 @@ test("summarizeWithAnthropic builds requests inside the worker and parses text o
   }
 });
 
+for (const [model, thinkingType] of [
+  ["claude-haiku-5-5", "disabled"],
+  ["claude-sonnet-5-5", "between_tools"]
+]) {
+  test(`summarizeWithAnthropic preserves non-thinking summaries on ${model}`, async () => {
+    const originalFetch = globalThis.fetch;
+    let body;
+    globalThis.fetch = async (_url, options) => {
+      body = JSON.parse(options.body);
+      return {
+        ok: true,
+        json: async () => ({ content: [{ type: "text", text: "Summary." }] })
+      };
+    };
+    try {
+      const summary = await summarizeWithAnthropic(
+        { apiKey: "test-key", model },
+        { systemPrompt: "Keep it short.", prompt: "Article." }
+      );
+      assert.equal(summary, "Summary.");
+      assert.equal(body.model, model);
+      assert.equal(body.max_tokens, 2048);
+      assert.deepEqual(body.thinking, { type: thinkingType });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
 test("summarizeWithAnthropic sanitizes API errors", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => ({

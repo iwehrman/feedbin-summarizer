@@ -76,6 +76,8 @@ More detail is in [SECURITY.md](/Users/ian/Source/summarize-extension/SECURITY.m
 
 - `chrome.storage.local`
   - `settings`
+  - `lastAppliedOpenAIModelDefault` (tracks which default was applied on upgrade so later manual model choices persist)
+  - `lastAppliedAnthropicModelUpgrade` (tracks the one-time Haiku/Sonnet upgrade so later manual model choices persist)
   - `feedbinState`
   - `summaryCacheEntries`
   - `secrets`

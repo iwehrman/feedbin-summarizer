@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyPreferredOpenAIModel,
+  applyPreferredAnthropicModels,
   buildArticleTextMetrics,
   buildSummaryCacheKeyForPayload,
   buildSummaryPrompt,
@@ -16,6 +18,85 @@ import {
   shouldPreferVisibleArticleText,
   storeCachedSummaryInCache
 } from "../background/service-worker-core.js";
+import { ANTHROPIC_MODEL_UPGRADE_VERSION } from "../shared/defaults.js";
+
+test("Anthropic defaults to Haiku 5.5 on a fresh install", () => {
+  assert.equal(normalizeSettings({}).anthropicModel, "claude-haiku-5-5");
+});
+
+for (const [previousModel, nextModel] of [
+  ["claude-haiku-4-5", "claude-haiku-5-5"],
+  ["claude-sonnet-4-6", "claude-sonnet-5-5"]
+]) {
+  test(`Anthropic upgrades ${previousModel} once while preserving later choices`, () => {
+    const saved = normalizeSettings({
+      provider: "anthropic",
+      anthropicModel: previousModel,
+      openaiModel: "gpt-5.4-mini",
+      summaryCacheEnabled: false,
+      systemPrompt: "My custom prompt."
+    });
+    for (const marker of [undefined, "older-upgrade"]) {
+      const upgraded = applyPreferredAnthropicModels(saved, marker);
+      assert.deepEqual(upgraded, { ...saved, anthropicModel: nextModel });
+      assert.equal(didContentInvalidationChange(saved, upgraded), true);
+    }
+
+    const manualChoice = { ...saved, anthropicModel: previousModel };
+    assert.deepEqual(applyPreferredAnthropicModels(manualChoice, ANTHROPIC_MODEL_UPGRADE_VERSION), manualChoice);
+
+    const openaiUser = { ...saved, provider: "openai" };
+    const upgraded = applyPreferredAnthropicModels(openaiUser, undefined);
+    assert.deepEqual(upgraded, { ...openaiUser, anthropicModel: nextModel });
+    assert.equal(didContentInvalidationChange(openaiUser, upgraded), false);
+  });
+}
+
+test("Anthropic migration preserves either already selected 5.5 model", () => {
+  for (const anthropicModel of ["claude-haiku-5-5", "claude-sonnet-5-5"]) {
+    const settings = normalizeSettings({ provider: "anthropic", anthropicModel });
+    assert.deepEqual(applyPreferredAnthropicModels(settings, undefined), settings);
+  }
+});
+
+test("normalizeSettings uses GPT-6 Luna as the default OpenAI model", () => {
+  assert.equal(normalizeSettings({}).openaiModel, "gpt-6-luna");
+});
+
+test("a new OpenAI model default replaces an older saved choice once", () => {
+  const savedSettings = normalizeSettings({
+    provider: "openai",
+    openaiModel: "gpt-5.6-luna",
+    openaiReasoningEffort: "low"
+  });
+  const upgraded = applyPreferredOpenAIModel(savedSettings, undefined);
+
+  assert.equal(upgraded.provider, "openai");
+  assert.equal(upgraded.openaiModel, "gpt-6-luna");
+  assert.equal(upgraded.openaiReasoningEffort, "low");
+  assert.equal(didContentInvalidationChange(savedSettings, upgraded), true);
+  assert.equal(applyPreferredOpenAIModel(savedSettings, "gpt-5.6-luna").openaiModel, "gpt-6-luna");
+
+  const userChoseOlderModel = { ...upgraded, openaiModel: "gpt-5.6-luna" };
+  assert.equal(
+    applyPreferredOpenAIModel(userChoseOlderModel, "gpt-6-luna").openaiModel,
+    "gpt-5.6-luna"
+  );
+});
+
+test("an OpenAI model default update preserves the active Anthropic provider", () => {
+  const savedSettings = normalizeSettings({
+    provider: "anthropic",
+    openaiModel: "gpt-5.4-mini",
+    anthropicModel: "claude-sonnet-4-6"
+  });
+  const upgraded = applyPreferredOpenAIModel(savedSettings, undefined);
+
+  assert.equal(upgraded.provider, "anthropic");
+  assert.equal(upgraded.anthropicModel, "claude-sonnet-4-6");
+  assert.equal(upgraded.openaiModel, "gpt-6-luna");
+  assert.equal(didContentInvalidationChange(savedSettings, upgraded), false);
+});
 
 test("normalizeSettings applies defaults and sanitizes values", () => {
   const settings = normalizeSettings({

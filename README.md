@@ -40,13 +40,13 @@ Then open the extension's options page, choose a provider, add your API key, tes
 - `API Key`
   Stores the selected provider keys locally inside the extension.
 - `OpenAI model`
-  Defaults to `gpt-5.4-mini`, with `gpt-5.4-nano` and `gpt-5.4` as the other built-in choices.
+  Defaults to `gpt-6-luna`, with `gpt-5.6-luna`, `gpt-5.4-nano`, `gpt-5.4-mini`, and `gpt-5.4` as the other built-in choices. An update to the preferred OpenAI model selects it once for existing users; you can choose an older model afterward.
 - `Reasoning effort`
-  OpenAI-only. For the current GPT-5.4 models, the built-in choices are `none`, `low`, `medium`, `high`, and `xhigh`.
+  OpenAI-only. For the built-in OpenAI models, the choices are `none`, `low`, `medium`, `high`, and `xhigh`.
 - `Verbosity`
   OpenAI-only. Lets you bias toward shorter or fuller responses.
 - `Anthropic model`
-  Defaults to `claude-haiku-4-5`, with `claude-sonnet-4-6` as the stronger alternative.
+  Defaults to `claude-haiku-5-5`, with `claude-sonnet-5-5` as the stronger alternative. Existing Haiku 4.5 and Sonnet 4.6 choices upgrade once to their corresponding 5.5 models; you can choose an older model afterward.
 - `Cache Summaries`
   Reuses matching summaries locally for 7 days.
 - `Show Summary Indicators`

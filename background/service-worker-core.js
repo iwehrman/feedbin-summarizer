@@ -1,5 +1,7 @@
 import {
   ANTHROPIC_MODEL_OPTIONS,
+  ANTHROPIC_MODEL_UPGRADES,
+  ANTHROPIC_MODEL_UPGRADE_VERSION,
   DEFAULT_SETTINGS,
   MAX_SUMMARY_CACHE_ENTRIES,
   OPENAI_MODEL_OPTIONS,
@@ -70,6 +72,27 @@ export function normalizeSettings(rawSettings) {
       ? rawSettings.prefetchDebugVisualizationEnabled
       : DEFAULT_SETTINGS.prefetchDebugVisualizationEnabled,
     systemPrompt: normalizeString(rawSettings?.systemPrompt, DEFAULT_SETTINGS.systemPrompt, 4000)
+  };
+}
+
+export function applyPreferredOpenAIModel(settings, lastAppliedDefaultModel) {
+  const normalized = normalizeSettings(settings);
+  if (lastAppliedDefaultModel === DEFAULT_SETTINGS.openaiModel) {
+    return normalized;
+  }
+
+  return { ...normalized, openaiModel: DEFAULT_SETTINGS.openaiModel };
+}
+
+export function applyPreferredAnthropicModels(settings, lastAppliedUpgrade) {
+  const normalized = normalizeSettings(settings);
+  if (lastAppliedUpgrade === ANTHROPIC_MODEL_UPGRADE_VERSION) {
+    return normalized;
+  }
+
+  return {
+    ...normalized,
+    anthropicModel: ANTHROPIC_MODEL_UPGRADES[normalized.anthropicModel] || normalized.anthropicModel
   };
 }
 

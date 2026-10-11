@@ -1,9 +1,9 @@
 export const DEFAULT_SETTINGS = Object.freeze({
   provider: "openai",
-  openaiModel: "gpt-5.4-mini",
+  openaiModel: "gpt-6-luna",
   openaiReasoningEffort: "none",
   openaiVerbosity: "low",
-  anthropicModel: "claude-haiku-4-5",
+  anthropicModel: "claude-haiku-5-5",
   summaryCacheEnabled: true,
   prefetchDebugVisualizationEnabled: false,
   systemPrompt: [
@@ -20,6 +20,13 @@ export const DEFAULT_SETTINGS = Object.freeze({
 });
 
 export const SETTINGS_STORAGE_KEY = "settings";
+export const LAST_APPLIED_OPENAI_MODEL_DEFAULT_STORAGE_KEY = "lastAppliedOpenAIModelDefault";
+export const LAST_APPLIED_ANTHROPIC_MODEL_UPGRADE_STORAGE_KEY = "lastAppliedAnthropicModelUpgrade";
+export const ANTHROPIC_MODEL_UPGRADE_VERSION = "5.5";
+export const ANTHROPIC_MODEL_UPGRADES = Object.freeze({
+  "claude-haiku-4-5": "claude-haiku-5-5",
+  "claude-sonnet-4-6": "claude-sonnet-5-5"
+});
 export const FEEDBIN_STATE_STORAGE_KEY = "feedbinState";
 export const SECRETS_STORAGE_KEY = "secrets";
 export const SESSION_SECRETS_STORAGE_KEY = "sessionSecrets";
@@ -43,11 +50,15 @@ export const ANTHROPIC_MAX_OUTPUT_TOKENS = 2048;
 
 export const PROVIDERS = Object.freeze(["openai", "anthropic"]);
 export const OPENAI_MODEL_OPTIONS = Object.freeze([
+  "gpt-6-luna",
+  "gpt-5.6-luna",
   "gpt-5.4-nano",
   "gpt-5.4-mini",
   "gpt-5.4"
 ]);
 export const ANTHROPIC_MODEL_OPTIONS = Object.freeze([
+  "claude-haiku-5-5",
+  "claude-sonnet-5-5",
   "claude-haiku-4-5",
   "claude-sonnet-4-6"
 ]);
